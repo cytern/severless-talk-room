@@ -1,0 +1,1 @@
+window.HIHERE_CONFIG={"ws_base":"wss://mlxv30s7ud.execute-api.ap-east-1.amazonaws.com/prod"};

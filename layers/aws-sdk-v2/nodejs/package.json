@@ -1,0 +1,9 @@
+{
+  "name": "aws-sdk-v2-layer",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Layer NB: nodejs/node_modules/aws-sdk for Lambda Node.js 18",
+  "dependencies": {
+    "aws-sdk": "^2.1530.0"
+  }
+}
