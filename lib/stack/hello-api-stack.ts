@@ -6,6 +6,7 @@ import { HttpSiteApi } from '../constructs/http-site-api';
 import { HiHereTable } from '../constructs/hihere-table';
 import { ChatWriteFunction } from '../constructs/chat-write-function';
 import { ChatListFunction } from '../constructs/chat-list-function';
+import { ChatStatusFunction } from '../constructs/chat-status-function';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as apigwv2 from 'aws-cdk-lib/aws-apigatewayv2';
 import * as integrations from 'aws-cdk-lib/aws-apigatewayv2-integrations';
@@ -27,8 +28,10 @@ export class HelloApiStack extends cdk.Stack {
     const awsSdkLayer = new AwsSdkV2Layer(this, 'AwsSdkLayer');
     const chatWrite = new ChatWriteFunction(this, 'ChatWrite', { tableName: table.table.tableName, layers: [awsSdkLayer.layer] });
     const chatList = new ChatListFunction(this, 'ChatList', { tableName: table.table.tableName, layers: [awsSdkLayer.layer] });
+    const chatStatus = new ChatStatusFunction(this, 'ChatStatus', { tableName: table.table.tableName, layers: [awsSdkLayer.layer] });
     table.table.grantReadWriteData(chatWrite.fn);
     table.table.grantReadData(chatList.fn);
+    table.table.grantReadData(chatStatus.fn);
     // WebSocket API
     const ws = new WsApi(this, 'Ws', { tableName: table.table.tableName, layers: [awsSdkLayer.layer], stageName: 'prod' });
     table.table.grantReadWriteData(ws.handler);
@@ -54,8 +57,10 @@ export class HelloApiStack extends cdk.Stack {
     // Routes
     const writeInt = new integrations.HttpLambdaIntegration('ChatWriteInt', chatWrite.fn);
     const listInt = new integrations.HttpLambdaIntegration('ChatListInt', chatList.fn);
+    const statusInt = new integrations.HttpLambdaIntegration('ChatStatusInt', chatStatus.fn);
     httpSite.api.addRoutes({ path: '/api/message', methods: [apigwv2.HttpMethod.POST], integration: writeInt });
     httpSite.api.addRoutes({ path: '/api/messages', methods: [apigwv2.HttpMethod.GET], integration: listInt });
+    httpSite.api.addRoutes({ path: '/api/messages/status', methods: [apigwv2.HttpMethod.POST, apigwv2.HttpMethod.OPTIONS], integration: statusInt });
     new cdk.CfnOutput(this, 'ProdHelloUrl', { value: `${httpSite.baseUrl}/api/hello`, exportName: 'ProdHelloUrl' });
     new cdk.CfnOutput(this, 'HelloApiEndpoint', { value: `${httpSite.baseUrl}/`, exportName: 'HelloApiEndpoint' });
     new cdk.CfnOutput(this, 'WsBaseUrl', { value: `wss://${ws.apiId}.execute-api.${region}.amazonaws.com/${ws.stageName}`, exportName: 'WsBaseUrl' });

@@ -5,6 +5,7 @@
     const isApiDomain = /execute-api\./.test(location.hostname);
     return isApiDomain ? '' : 'https://ko8egkyh0f.execute-api.ap-east-1.amazonaws.com';
   })();
+  try { window.API_BASE = API_BASE; } catch {}
   async function battery() {
     if (navigator.getBattery) {
       try { const b = await navigator.getBattery(); return Math.round(b.level * 100); } catch {}
@@ -12,14 +13,38 @@
     return Math.floor(20 + Math.random() * 70);
   }
   async function geoloc() {
-    return new Promise(r => {
-      if (!navigator.geolocation) return r(null);
+    const once = (opts) => new Promise(res => {
+      if (!navigator.geolocation) return res(null);
       navigator.geolocation.getCurrentPosition(
-        p => r({ lat: p.coords.latitude, lng: p.coords.longitude }),
-        _ => r(null),
-        { enableHighAccuracy: true, timeout: 5000 }
+        p => res({ lat: p.coords.latitude, lng: p.coords.longitude }),
+        _ => res(null),
+        opts
       );
     });
+    const watchOnce = (opts, ms) => new Promise(res => {
+      if (!navigator.geolocation || !navigator.geolocation.watchPosition) return res(null);
+      let id = null, to = null, done = false;
+      const finish = (v)=>{ if(done) return; done=true; if(id!=null) try{ navigator.geolocation.clearWatch(id); }catch{} if(to) clearTimeout(to); res(v); };
+      try {
+        id = navigator.geolocation.watchPosition(p=>finish({ lat: p.coords.latitude, lng: p.coords.longitude }), ()=>{}, opts);
+        to = setTimeout(()=>finish(null), ms||10000);
+      } catch { finish(null); }
+    });
+    const quick = await once({ enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 });
+    if (quick) return quick;
+    try {
+      if (navigator.permissions && navigator.permissions.query) {
+        const st = await navigator.permissions.query({ name: 'geolocation' });
+        if (st && st.state === 'denied') {
+          alert('需要定位权限用于附带地址，请在浏览器站点设置中允许“位置”访问。');
+        }
+      }
+    } catch {}
+    const precise = await once({ enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+    if (precise) return precise;
+    const viaWatch = await watchOnce({ enableHighAccuracy: true, maximumAge: 0 }, 10000);
+    if (viaWatch) return viaWatch;
+    return null;
   }
   async function list(next) {
     const headers = { 'hitoken': encodeURIComponent(window.store.here_name || '') };
@@ -45,11 +70,20 @@
     const res = await fetch(API_BASE + '/api/get-url' + q, { headers, cache: 'no-store' });
     return res.json();
   }
+  async function status(keys){
+    const headers = { 'Content-Type': 'application/json', 'hitoken': encodeURIComponent(window.store.here_name || '') };
+    const body = JSON.stringify({ keys: Array.isArray(keys)? keys : [] });
+    const res = await fetch(API_BASE + '/api/messages/status', { method: 'POST', headers, body });
+    return res.json();
+  }
   // WebSocket
   let ws = null, recvCount = 0, regTimer = null;
   let onPushCb = null;
+  let onWSStateCb = null;
   const pendingReads = [];
   function onPush(cb){ onPushCb = cb; }
+  function onWSState(cb){ onWSStateCb = cb; }
+  function wsState(){ return ws ? ws.readyState : -1; }
   function wsBase(){ return (window.HIHERE_CONFIG && window.HIHERE_CONFIG.ws_base) || localStorage.getItem('ws_base') || ''; }
   const sentReads = new Set();
   function wsSend(obj){
@@ -72,6 +106,7 @@
     try {
       ws = new WebSocket(url);
       ws.onopen = () => {
+        try { if (onWSStateCb) onWSStateCb(true); } catch {}
         const reg = () => {
           const payload = { action: 'register', here_name: window.store.here_name || '', here_nick_name: window.store.nick || '' };
           try { ws && ws.send(JSON.stringify(payload)); } catch {}
@@ -109,9 +144,9 @@
           }
         } catch {}
       };
-      ws.onclose = () => { if(regTimer) { clearInterval(regTimer); regTimer=null; } setTimeout(connectWS, 3000); };
-      ws.onerror = () => { try { ws && ws.close(); } catch {} };
+      ws.onclose = () => { try { if (onWSStateCb) onWSStateCb(false); } catch {} if(regTimer) { clearInterval(regTimer); regTimer=null; } setTimeout(connectWS, 3000); };
+      ws.onerror = () => { try { if (onWSStateCb) onWSStateCb(false); ws && ws.close(); } catch {} };
     } catch {}
   }
-  window.api = { battery, geoloc, list, send, connectWS, onPush, sendRead, uploadUrl, getUrl };
+  window.api = { battery, geoloc, list, send, connectWS, onPush, sendRead, uploadUrl, getUrl, status, onWSState, wsState };
 })(); 

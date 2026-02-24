@@ -6,8 +6,8 @@
   const btnMsg = document.getElementById('btnMsg');
   const btnSend = document.getElementById('btnSend');
   const btnRefresh = document.getElementById('btnRefresh');
-  const timelineWrap = document.getElementById('timelineWrap');
-  const timelineAxis = document.getElementById('timelineAxis');
+  const wsDot = document.getElementById('wsDot');
+  const wsText = document.getElementById('wsText');
   const compose = document.getElementById('compose');
   const text = document.getElementById('text');
   const msgBar = document.getElementById('msgBar');
@@ -36,6 +36,9 @@
   const pSkip = document.getElementById('pSkip');
   const pConfirm = document.getElementById('pConfirm');
   const inpMsgOptional = document.getElementById('inpMsgOptional');
+  const imgViewer = document.getElementById('imgViewer');
+  const imgViewPic = document.getElementById('imgViewPic');
+  const expandedImgs = new Set();
   let punchType = null;
   let punchMins = null;
   const TYPE_EMOJI = {
@@ -85,6 +88,153 @@
     if (p < 0.66) return '#faad14';
     return '#52c41a';
   }
+  const B64_LIMIT = 6 * 1024 * 1024; // 6MB 预算
+  const pendingMedia = new Map();
+  function b64MetaKey(){ return 'media_b64_meta'; }
+  function encKey(k){ return encodeURIComponent(k||''); }
+  function b64ItemKey(k){ return 'media_b64:'+encKey(k); }
+  function loadB64Meta(){
+    try { return JSON.parse(localStorage.getItem(b64MetaKey())||'') || { total: 0, items: {} }; } catch { return { total:0, items:{} }; }
+  }
+  function saveB64Meta(m){ try { localStorage.setItem(b64MetaKey(), JSON.stringify(m)); } catch {} }
+  function getB64(k){
+    try {
+      const v = localStorage.getItem(b64ItemKey(k));
+      if (v) {
+        const meta = loadB64Meta();
+        const it = meta.items[encKey(k)];
+        if (it) { it.ts = Date.now(); saveB64Meta(meta); }
+      }
+      return v;
+    } catch { return null; }
+  }
+  function evictIfNeeded(){
+    const meta = loadB64Meta();
+    if (meta.total <= B64_LIMIT) return;
+    const entries = Object.entries(meta.items).sort((a,b)=> (a[1].ts||0) - (b[1].ts||0)); // 最旧优先
+    for (const [ek, it] of entries){
+      try { localStorage.removeItem('media_b64:'+ek); } catch {}
+      meta.total = Math.max(0, (meta.total||0) - (it.size||0));
+      delete meta.items[ek];
+      if (meta.total <= B64_LIMIT) break;
+    }
+    saveB64Meta(meta);
+  }
+  function putB64(k, dataUrl){
+    try {
+      const ek = encKey(k);
+      const size = dataUrl ? dataUrl.length : 0;
+      const meta = loadB64Meta();
+      const old = meta.items[ek];
+      if (old && old.size) meta.total = Math.max(0, meta.total - old.size);
+      try { localStorage.setItem(b64ItemKey(k), dataUrl); } catch {}
+      meta.items[ek] = { size, ts: Date.now() };
+      meta.total = (meta.total||0) + size;
+      saveB64Meta(meta);
+      evictIfNeeded();
+    } catch {}
+  }
+  function blobToDataURL(blob){
+    return new Promise(res=>{
+      try{
+        const fr = new FileReader();
+        fr.onload = ()=> res(String(fr.result||''));
+        fr.onerror = ()=> res(null);
+        fr.readAsDataURL(blob);
+      } catch { res(null); }
+    });
+  }
+  const mediaCacheName = 'hihere-media-v1';
+  async function getFromCaches(key){
+    try {
+      if (typeof caches === 'undefined' || !caches?.open) return null;
+      const c = await caches.open(mediaCacheName);
+      const m = await c.match(new Request('media:'+key));
+      if (!m) return null;
+      const b = await m.blob();
+      return URL.createObjectURL(b);
+    } catch { return null; }
+  }
+  async function putCaches(key, blob, type){
+    try {
+      if (typeof caches === 'undefined' || !caches?.open) return false;
+      const c = await caches.open(mediaCacheName);
+      const resp = new Response(blob, { headers: { 'Content-Type': type || blob.type || 'application/octet-stream' } });
+      await c.put(new Request('media:'+key), resp);
+      return true;
+    } catch { return false; }
+  }
+  async function getImageSrcByKey(key, contentType){
+    if (!key) return null;
+    const b64 = getB64(key);
+    if (b64) return b64;
+    const cachedObj = await getFromCaches(key);
+    if (cachedObj) return cachedObj;
+    if (pendingMedia.has(key)) return pendingMedia.get(key);
+    const p = (async ()=>{
+      try {
+        const r = await window.api.getUrl(key);
+        const u = r && r.url;
+        if (!u) return null;
+        const resp = await fetch(u, { cache: 'no-store' });
+        if (!resp || !resp.ok) return null;
+        const blob = await resp.blob();
+        const dt = await blobToDataURL(blob);
+        if (dt && String(dt).startsWith('data:image/')) {
+          try { putB64(key, dt); } catch {}
+          return dt;
+        }
+        const ok = await putCaches(key, blob, contentType || blob.type);
+        if (ok) return URL.createObjectURL(blob);
+        return dt || URL.createObjectURL(blob);
+      } catch { return null; }
+      finally { pendingMedia.delete(key); }
+    })();
+    pendingMedia.set(key, p);
+    return p;
+  }
+  function openImageViewer(url){
+    if (!imgViewer || !imgViewPic) return;
+    imgViewPic.src = url || '';
+    imgViewer.style.display = url ? 'flex' : 'none';
+  }
+  function mediaUrlForKey(key){
+    const api = window.API_BASE || '';
+    const here = window.store.here_name || '';
+    return '/media/' + encodeURIComponent(key||'') + '?t=' + encodeURIComponent(here) + '&a=' + encodeURIComponent(api);
+  }
+  if (imgViewer) {
+    imgViewer.addEventListener('click', (e)=>{ if(e.target===imgViewer) openImageViewer(''); });
+  }
+  function renderImageInline(host, m){
+    const ht = m.heart_time || 0;
+    const wrap = document.createElement('div');
+    const loading = document.createElement('div');
+    loading.textContent = '加载中…';
+    loading.style.color = '#888';
+    const img = document.createElement('img');
+    img.style.maxWidth='72vw'; img.style.borderRadius='10px'; img.style.display='block';
+    const collapse = document.createElement('button');
+    collapse.className='btn outline'; collapse.textContent='收起';
+    collapse.onclick=()=>{ expandedImgs.delete(ht); render(); };
+    wrap.append(loading);
+    host.innerHTML = '';
+    host.append(wrap, collapse);
+    (()=>{
+      let src = m?.file?.local_url || null;
+      if (!src && m?.file?.key) {
+        src = mediaUrlForKey(m.file.key);
+      }
+      if (src) {
+        img.src = src;
+        img.onclick = ()=>{ openImageViewer(src); };
+        wrap.innerHTML = '';
+        wrap.appendChild(img);
+      } else {
+        loading.textContent = '加载失败';
+      }
+    })();
+  }
   function bubble(m){
     const isSelf = (m.here_nick_name||'') === (window.store.nick||'');
     const wrap=document.createElement('div');
@@ -115,42 +265,28 @@
     if (kind==='text') {
       msg.textContent=m.msg||'';
     } else if (kind==='image' && m.file && m.file.key) {
-      const btn=document.createElement('button'); btn.className='btn outline'; btn.style.width='100%'; btn.textContent=(m._status==='pending' && !m.file.key)?'【图片】(上传中…)':'【图片】';
-      const show = async ()=>{
-        let url = m.file.local_url;
-        if (!url) {
-          const r = await window.api.getUrl(m.file.key);
-          url = r && r.url;
-        }
-        if (url) {
-          const img = document.createElement('img'); img.src=url; img.style.maxWidth='72vw'; img.style.borderRadius='10px'; img.style.display='block';
-          const collapse = document.createElement('button'); collapse.className='btn outline'; collapse.textContent='收起';
-          collapse.onclick=()=>{ msg.innerHTML=''; msg.appendChild(btn); };
-          img.onclick=()=>{ msg.innerHTML=''; msg.appendChild(btn); };
-          msg.innerHTML=''; msg.append(img, collapse);
-        }
-      };
-      btn.onclick = show;
-      msg.appendChild(btn);
+      const ht = m.heart_time || 0;
+      if (expandedImgs.has(ht)) {
+        renderImageInline(msg, m);
+      } else {
+        const btn=document.createElement('button'); btn.className='btn outline'; btn.style.width='100%'; btn.textContent=(m._status==='pending' && !m.file.key)?'【图片】(上传中…)':'【图片】';
+        btn.onclick = ()=>{ expandedImgs.add(ht); render(); };
+        msg.appendChild(btn);
+      }
     } else if (kind==='image' && m.file && m.file.local_url && !m.file.key){
-      const btn=document.createElement('button'); btn.className='btn outline'; btn.style.width='100%'; btn.textContent='【图片】(上传中…)';
-      const show = ()=> {
-        const img = document.createElement('img'); img.src=m.file.local_url; img.style.maxWidth='72vw'; img.style.borderRadius='10px'; img.style.display='block';
-        const collapse = document.createElement('button'); collapse.className='btn outline'; collapse.textContent='收起';
-        collapse.onclick=()=>{ msg.innerHTML=''; msg.appendChild(btn); };
-        img.onclick=()=>{ msg.innerHTML=''; msg.appendChild(btn); };
-        msg.innerHTML=''; msg.append(img, collapse);
-      };
-      btn.onclick = show;
-      msg.appendChild(btn);
+      const ht = m.heart_time || 0;
+      if (expandedImgs.has(ht)) {
+        renderImageInline(msg, m);
+      } else {
+        const btn=document.createElement('button'); btn.className='btn outline'; btn.style.width='100%'; btn.textContent='【图片】(上传中…)';
+        btn.onclick = ()=>{ expandedImgs.add(ht); render(); };
+        msg.appendChild(btn);
+      }
     } else if (kind==='audio' && m.file && m.file.key) {
       const btn=document.createElement('button'); btn.className='btn outline'; btn.textContent=(m._status==='pending' && !m.file.key)?'【音频】(上传中…)':'【音频】';
       const show = async ()=>{
         let url = m.file.local_url;
-        if (!url) {
-          const r = await window.api.getUrl(m.file.key);
-          url = r && r.url;
-        }
+        if (!url) url = mediaUrlForKey(m.file.key);
         if (url) {
           const player = document.createElement('audio'); player.controls = true; player.src = url; player.style.width='72vw';
           const collapse = document.createElement('button'); collapse.className='btn outline'; collapse.textContent='收起';
@@ -176,10 +312,10 @@
       const btn=document.createElement('button'); btn.className='btn outline'; btn.textContent='【文件】';
       btn.onclick = async ()=>{
         btn.disabled=true;
-        const r = await window.api.getUrl(m.file.key);
-        const u = r && r.url;
-        if (u) {
-          const a=document.createElement('a'); a.href=u; a.download=''; document.body.appendChild(a); a.click(); a.remove();
+        let url = mediaUrlForKey(m.file.key);
+        if (url) {
+          const name = (m.file.key && m.file.key.split('/').pop()) || 'download';
+          const a=document.createElement('a'); a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove();
         }
         btn.disabled=false;
       };
@@ -275,106 +411,46 @@
   function scrollToBottom(){
     try { window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }); } catch { window.scrollTo(0, document.body.scrollHeight); }
   }
-  function buildHourAxis(){
-    if (!timelineAxis) return;
-    timelineAxis.innerHTML = '';
-    for(let i=0;i<24;i++){
-      const s=document.createElement('span');
-      s.className='tl-item';
-      s.textContent=String(i).padStart(2,'0');
-      timelineAxis.appendChild(s);
+  // ws indicator
+  const peerSeen = new Map();
+  function updateWsIndicator(){
+    if (!wsDot || !wsText) return;
+    const now = Date.now();
+    let onlinePeers = 0;
+    for (const [k, t] of peerSeen.entries()){
+      if (now - t < 5*60*1000) onlinePeers++;
     }
+    const connected = (window.api.wsState && window.api.wsState() === 1);
+    const strong = connected && onlinePeers >= 2;
+    wsDot.style.background = strong ? '#07c160' : (connected ? '#91d5ff' : '#bbb');
+    wsText.textContent = connected ? (strong ? '在线(多人)' : '在线') : '离线';
   }
-  function currentViewportToken(){
-    const vh = window.innerHeight || document.documentElement.clientHeight || 0;
-    const mid = (window.scrollY||document.documentElement.scrollTop||0) + vh/2;
-    const nodes = Array.from(listEl.querySelectorAll('.bubble[data-ht]'));
-    let bestTok = null, bestDist = Infinity;
-    for (const el of nodes){
-      const r = el.getBoundingClientRect();
-      const top = r.top + (window.scrollY||document.documentElement.scrollTop||0);
-      const bottom = top + r.height;
-      const center = (top+bottom)/2;
-      const dt = Math.abs(center - mid);
-      const ht = Number(el.getAttribute('data-ht')||'0');
-      const tok = tokenOf(ht);
-      if (dt < bestDist){ bestDist = dt; bestTok = tok; }
+  window.api.onPush((item)=>{
+    if (item && item.here_nick_name) {
+      const me = window.store.nick||'';
+      if (item.here_nick_name !== me) peerSeen.set(item.here_nick_name, Date.now());
     }
-    return bestTok;
-  }
-  function currentViewportBelowFirstTs(){
-    const vh = window.innerHeight || document.documentElement.clientHeight || 0;
-    const mid = (window.scrollY||document.documentElement.scrollTop||0) + vh/2;
-    const nodes = Array.from(listEl.querySelectorAll('.bubble[data-ht]'));
-    let targetTs = null;
-    for (const el of nodes){
-      const rect = el.getBoundingClientRect();
-      const top = rect.top + (window.scrollY||document.documentElement.scrollTop||0);
-      if (top >= mid) {
-        targetTs = Number(el.getAttribute('data-ht')||'0') || null;
-        break;
+    updateWsIndicator();
+    const me = window.store.nick||'';
+    if (item && item.here_nick_name === me) {
+      const minePending = (window.store.messages||[]).find(x => x._status==='pending' && x.here_nick_name===me && (x.msg||'')===(item.msg||'') && (x.kind||'text')===(item.kind||'text'));
+      if (minePending) {
+        const oldTs = minePending.heart_time;
+        window.store.updateByTime(oldTs, { heart_time: item.heart_time, _status: 'sent', readers: item.readers, read_count: item.read_count, file: item.file });
+        const oldNode = document.querySelector(`.bubble[data-ht="${oldTs}"]`);
+        if (oldNode) oldNode.replaceWith(bubble(item));
+        return;
       }
     }
-    if (targetTs==null && nodes.length) {
-      const last = nodes[nodes.length-1];
-      targetTs = Number(last.getAttribute('data-ht')||'0') || null;
-    }
-    return targetTs;
-  }
-  function dayProgressFromTs(ts){
-    if (!ts) return 0.5;
-    const d=new Date(ts + 8*3600*1000);
-    const h=d.getUTCHours(), m=d.getUTCMinutes(), s=d.getUTCSeconds();
-    return Math.max(0, Math.min(1, (h + m/60 + s/3600)/24));
-  }
-  function setAxisByProgress(prog){
-    const itemW = 48, gap = 8, pad = 24;
-    const total = 24*(itemW+gap) + pad*2;
-    const centerPos = prog*total;
-    const target = centerPos - (timelineWrap.clientWidth/2);
-    try { timelineWrap.scrollLeft = Math.max(0, Math.min(target, total - timelineWrap.clientWidth)); } catch {}
-  }
-  listEl.addEventListener('click', (e)=>{
-    const prevBtn = e.target.closest && e.target.closest('[data-role=prev-day]');
-    const nextBtn = e.target.closest && e.target.closest('[data-role=next-day]');
-    if (prevBtn) {
-      ensureDays();
-      if (dayIndex < dayList.length - 1) {
-        dayIndex += 1;
-        selectedDayToken = dayList[dayIndex];
-        dayLabel.textContent = dayLabelText(selectedDayToken);
-        render();
-        centerToIndex(dayIndex);
-      }
-    } else if (nextBtn) {
-      ensureDays();
-      if (dayIndex > 0) {
-        scrollToBottom();
-        setTimeout(()=>{
-          dayIndex -= 1;
-          selectedDayToken = dayList[dayIndex];
-          dayLabel.textContent = dayLabelText(selectedDayToken);
-          render();
-          centerToIndex(dayIndex);
-          scrollToBottom();
-        }, 250);
-      }
+    if (item && document.querySelector(`.bubble[data-ht="${item.heart_time}"]`)) {
+      const el = document.querySelector(`.bubble[data-ht="${item.heart_time}"]`);
+      const newNode = bubble(item);
+      el.replaceWith(newNode);
+    } else if (item) {
+      render();
     }
   });
-  // Smooth follow: timeline only mirrors time, never drives filtering/switch
-  let scrollRaf = 0;
-  function onScrollFollow(){
-    if (scrollRaf) return;
-    scrollRaf = requestAnimationFrame(()=>{
-      scrollRaf = 0;
-      const ts = currentViewportBelowFirstTs();
-      const prog = dayProgressFromTs(ts || Date.now());
-      setAxisByProgress(prog);
-    });
-  }
-  window.addEventListener('scroll', onScrollFollow, { passive: true });
-  window.addEventListener('resize', ()=>{ onScrollFollow(); }, { passive: true });
-  window.api.onPush(()=>{ render(); });
+  if (window.api.onWSState) window.api.onWSState(()=>updateWsIndicator());
   let nextKey=null, loading=false, loadedInitial=false, noMore=false;
   async function loadMore(){
     if(loading || noMore) return; loading=true;
@@ -390,8 +466,41 @@
   async function refreshLatest(){
     nextKey=null; noMore=false;
     const data = await window.api.list(null);
-    window.store.mergeMessages(data.items||[]);
-    render();
+    const items = data.items||[];
+    window.store.mergeMessages(items);
+    let replaced = 0;
+    items.forEach(it=>{
+      const node = document.querySelector(`.bubble[data-ht="${it.heart_time}"]`);
+      if (node) { node.replaceWith(bubble(it)); replaced++; }
+    });
+    if (replaced === 0 && items.length) render();
+  }
+  async function reconcileReadStatus(){
+    try{
+      const me = window.store.nick || '';
+      const here = window.store.here_name || '';
+      if (!here) return;
+      const arr = (window.store.messages||[]).slice(0, 200);
+      const keys = [];
+      for (const m of arr){
+        const readersArr = Array.isArray(m.readers)? m.readers: [];
+        const isSelf = (m.here_nick_name||'') === (me||'');
+        const iHaveRead = readersArr.includes(me);
+        if (isSelf || !iHaveRead) {
+          if (m.heart_time) keys.push(m.heart_time);
+        }
+        if (keys.length >= 100) break;
+      }
+      if (!keys.length) return;
+      const resp = await window.api.status(keys);
+      const items = Array.isArray(resp?.items)? resp.items : [];
+      for (const it of items){
+        if (it && it.heart_time) {
+          window.store.updateByTime(it.heart_time, { readers: Array.isArray(it.readers)? it.readers: [], read_count: Number(it.read_count)||0 });
+        }
+      }
+      render();
+    } catch {}
   }
   async function ensureProfile(){
     if(!window.store.here_name || !window.store.nick){
@@ -414,6 +523,29 @@
   function showMsgBar(){ btnPunch.style.display='none'; btnMsg.style.display='none'; msgBar.style.display='flex'; }
   function hideMsgBar(){ msgBar.style.display='none'; moreSheet.style.display='none'; textBox.style.display='none'; btnPunch.style.display=''; btnMsg.style.display=''; text.value=''; }
   function openTextBox(){ msgBar.style.display='none'; textBox.style.display='flex'; text.focus(); }
+  function closeTextBox(){ textBox.style.display='none'; msgBar.style.display='flex'; }
+  function syncTextBoxButtons(){
+    const has = text.value.trim().length>0;
+    const send = document.getElementById('btnSend');
+    const back = document.getElementById('btnBack');
+    if (send) send.style.display = has ? '' : 'none';
+    if (back) back.style.display = has ? 'none' : '';
+  }
+  document.getElementById('btnBack') && (document.getElementById('btnBack').onclick = ()=>{ closeTextBox(); });
+  text && (text.oninput = ()=>{ syncTextBoxButtons(); });
+  if (text) {
+    text.addEventListener('keydown', (e)=>{
+      if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && !e.isComposing) {
+        e.preventDefault();
+        const val = text.value.trim();
+        if (val) {
+          btnSend && btnSend.click();
+        } else {
+          closeTextBox();
+        }
+      }
+    });
+  }
   async function punch(){
     modalPunch.style.display = 'flex';
     punchType = null; punchMins = null;
@@ -536,21 +668,39 @@
     const v=text.value.trim(); if(!v){ closeCompose(); return; }
     btnSend.disabled = true;
     const now = Date.now();
-    const [batt, geo] = await Promise.all([window.api.battery(), window.api.geoloc()]);
     window.store.upsertMessage({
       here_name: window.store.here_name, heart_time: now,
-      here_nick_name: window.store.nick, battery: batt, lat: geo?.lat, lng: geo?.lng, msg: v, message: v, kind: 'text', _status: 'pending'
+      here_nick_name: window.store.nick, battery: null, lat: null, lng: null, msg: v, message: v, kind: 'text', _status: 'pending'
     });
-    render();
-    try{
+    const node = document.querySelector(`.bubble[data-ht="${now}"]`);
+    if (!node) { render(); }
+    text.value=''; syncTextBoxButtons(); closeTextBox();
+    (async()=>{
+      const [batt, geo] = await Promise.all([window.api.battery(), window.api.geoloc()]);
       const res = await window.api.send({ nick: window.store.nick, here_nick_name: window.store.nick, battery: batt, lat: geo?.lat, lng: geo?.lng, message: v, msg: v, kind: 'text' });
       const serverTs = Number(res?.ts) || now;
-      window.store.updateByTime(now, { heart_time: serverTs, _status: 'sent' });
-      render();
-    } finally {
+      window.store.updateByTime(now, { battery: batt, lat: geo?.lat, lng: geo?.lng, heart_time: serverTs, _status: 'sent' });
+      const finalItem = { here_name: window.store.here_name, heart_time: serverTs, here_nick_name: window.store.nick, battery: batt, lat: geo?.lat, lng: geo?.lng, msg: v, message: v, kind: 'text', _status: 'sent' };
+      const pendingNode = document.querySelector(`.bubble[data-ht="${now}"]`);
+      if (pendingNode) {
+        pendingNode.replaceWith(bubble(finalItem));
+      } else {
+        const sameNode = document.querySelector(`.bubble[data-ht="${serverTs}"]`);
+        if (sameNode) sameNode.replaceWith(bubble(finalItem));
+        else {
+          const nodes = Array.from(listEl.querySelectorAll('.bubble[data-ht]'));
+          let inserted = false;
+          for (const el of nodes){
+            const ht = Number(el.getAttribute('data-ht')||'0');
+            if (ht < serverTs) { listEl.insertBefore(bubble(finalItem), el); inserted = true; break; }
+          }
+          if (!inserted) listEl.insertBefore(bubble(finalItem), sentinel);
+        }
+      }
+    })().catch(()=>{/* 保持占位，可加失败态 */})
+    .finally(()=>{
       btnSend.disabled = false;
-      hideMsgBar();
-    }
+    });
   }
   function pickAudioMime(){
     const cand = ['audio/webm','audio/mp4','audio/mpeg'];
@@ -617,7 +767,19 @@
   function wireMsgBar(){
     btnMsg.onclick=()=>{ showMsgBar(); };
     btnText.onclick=()=>{ openTextBox(); };
-    btnMore.onclick=()=>{ moreSheet.style.display = moreSheet.style.display ? '' : 'block'; moreSheet.style.display = moreSheet.style.display || 'block'; };
+    btnMore.onclick=(e)=>{ 
+      e.stopPropagation && e.stopPropagation();
+      const showing = moreSheet.style.display === 'block';
+      moreSheet.style.display = showing ? 'none' : 'block';
+    };
+    document.addEventListener('click', (e)=>{
+      if (moreSheet.style.display === 'block') {
+        const inPanel = moreSheet.contains(e.target);
+        const onBtn = btnMore.contains(e.target);
+        if (!inPanel && !onBtn) moreSheet.style.display = 'none';
+      }
+    }, { passive: true });
+    window.addEventListener('scroll', ()=>{ if(moreSheet.style.display==='block') moreSheet.style.display='none'; }, { passive: true });
     btnVoice.addEventListener('mousedown', startRecord);
     btnVoice.addEventListener('touchstart', (e)=>{ e.preventDefault(); startRecord(); }, { passive: false });
     const end = ()=>stopRecord();
@@ -638,5 +800,5 @@
   btnMsg.onclick=()=>showMsgBar();
   btnSend.onclick=()=>sendText();
   btnRefresh.onclick=()=>refreshLatest();
-  (async () => { await ensureProfile(); await refreshLatest(); buildHourAxis(); onScrollFollow(); window.api.connectWS(); wirePunchUI(); wireMsgBar(); })();
+  (async () => { await ensureProfile(); window.store.loadCache(); render(); await reconcileReadStatus(); await refreshLatest(); updateWsIndicator(); window.api.connectWS(); wirePunchUI(); wireMsgBar(); })();
 })(); 
