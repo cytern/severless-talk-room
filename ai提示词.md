@@ -28,3 +28,13 @@
 
 通用提示词模板（无业务内容）
 - “在本仓库内，新增一个 {资源类型} 的构造文件到 lib/constructs/{name}-{type}.ts；如涉及函数，将实现代码放到 bin/lambda/{name}/ 下；在 lib/stack/{stack}.ts 中装配新构造与既有构造的依赖，并以 CfnOutput 输出关键引用（URL/ARN/Name）。保持现有目录与命名规范。”
+
+发布命令
+- Web 发布
+  - 快速发布：npm run web:deploy
+  - 手动同步静态：npm run site:sync
+  - 查看 API 基础地址：npm run site:url
+- 后端发布（Lambda/CDK）
+  - 部署全部：npm run deploy（若未设置，将自动默认 AWS_PROFILE=dam，AWS_REGION=ap-east-1，并在部署前调用 aws sts get-caller-identity 校验凭据）
+  - 构建并部署 Layer：npm run layer:deploy
+  - 查看变更：npm run diff

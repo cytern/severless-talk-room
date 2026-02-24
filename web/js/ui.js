@@ -541,6 +541,19 @@
     });
     if (replaced === 0 && items.length) render();
   }
+  async function onRefreshClick(){
+    if (!btnRefresh) return;
+    const old = btnRefresh.textContent;
+    btnRefresh.disabled = true;
+    btnRefresh.textContent = '刷新中…';
+    try {
+      await refreshLatest();
+    } catch {}
+    finally{
+      btnRefresh.textContent = old || '刷新';
+      btnRefresh.disabled = false;
+    }
+  }
   async function reconcileReadStatus(){
     try{
       const me = window.store.nick || '';
@@ -681,7 +694,7 @@
     closePunch();
     // 后台获取电量与定位并发送，成功后合并更新占位
     (async()=>{
-      const [batt, geoFast] = await Promise.all([window.api.battery(), Promise.resolve(window.api.geolocTryFast())]);
+      const [batt, geoFast] = await Promise.all([window.api.battery(), window.api.geolocForSend()]);
       const res = await window.api.send({ nick: window.store.nick, battery: batt, lat: geoFast?.lat, lng: geoFast?.lng, message: composed, countdownTs });
       const serverTs = Number(res?.ts) || now;
       window.store.updateByTime(now, { battery: batt, lat: geoFast?.lat, lng: geoFast?.lng, heart_time: serverTs, _status: 'sent' });
@@ -743,7 +756,7 @@
     if (!node) { render(); }
     text.value=''; syncTextBoxButtons(); closeTextBox();
     (async()=>{
-      const [batt, geoFast] = await Promise.all([window.api.battery(), Promise.resolve(window.api.geolocTryFast())]);
+      const [batt, geoFast] = await Promise.all([window.api.battery(), window.api.geolocForSend()]);
       const res = await window.api.send({ nick: window.store.nick, here_nick_name: window.store.nick, battery: batt, lat: geoFast?.lat, lng: geoFast?.lng, message: v, msg: v, kind: 'text' });
       const serverTs = Number(res?.ts) || now;
       window.store.updateByTime(now, { battery: batt, lat: geoFast?.lat, lng: geoFast?.lng, heart_time: serverTs, _status: 'sent' });
@@ -790,7 +803,7 @@
     const blob = new Blob(recChunks, { type: mime });
     const ext = mime==='audio/mp4'?'m4a':(mime.split('/')[1]||'bin');
     const now = Date.now();
-    const [batt, geoFast] = await Promise.all([window.api.battery(), Promise.resolve(window.api.geolocTryFast())]);
+    const [batt, geoFast] = await Promise.all([window.api.battery(), window.api.geolocForSend()]);
     const localUrl = URL.createObjectURL(blob);
     window.store.upsertMessage({
       here_name: window.store.here_name, heart_time: now,
@@ -818,7 +831,7 @@
     const ct = file.type || 'application/octet-stream';
     const ext = (file.name && file.name.includes('.')) ? file.name.substring(file.name.lastIndexOf('.')) : '';
     const now = Date.now();
-    const [batt, geoFast] = await Promise.all([window.api.battery(), Promise.resolve(window.api.geolocTryFast())]);
+    const [batt, geoFast] = await Promise.all([window.api.battery(), window.api.geolocForSend()]);
     const localUrl = (kind==='image' || kind==='audio') ? URL.createObjectURL(file) : null;
     window.store.upsertMessage({ here_name: window.store.here_name, heart_time: now, here_nick_name: window.store.nick, battery: batt, lat: geoFast?.lat, lng: geoFast?.lng, msg: '', kind, file: { key: null, local_url: localUrl, content_type: ct, size: file.size }, _status: 'pending' });
     render();
@@ -869,6 +882,6 @@
   btnPunch.onclick=punch;
   btnMsg.onclick=()=>showMsgBar();
   btnSend.onclick=()=>sendText();
-  btnRefresh.onclick=()=>refreshLatest();
+  btnRefresh.onclick=()=>onRefreshClick();
   (async () => { await ensureProfile(); window.store.loadCache(); render(); await reconcileReadStatus(); await refreshLatest(); updateWsIndicator(); window.api.connectWS(); wirePunchUI(); wireMsgBar(); })();
 })(); 
