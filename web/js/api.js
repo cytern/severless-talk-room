@@ -27,24 +27,61 @@
       const finish = (v)=>{ if(done) return; done=true; if(id!=null) try{ navigator.geolocation.clearWatch(id); }catch{} if(to) clearTimeout(to); res(v); };
       try {
         id = navigator.geolocation.watchPosition(p=>finish({ lat: p.coords.latitude, lng: p.coords.longitude }), ()=>{}, opts);
-        to = setTimeout(()=>finish(null), ms||10000);
+        to = setTimeout(()=>finish(null), ms||15000);
       } catch { finish(null); }
     });
-    const quick = await once({ enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 });
+    // 1) 尽快返回已有缓存定位（最多15分钟内）
+    const quick = await once({ enableHighAccuracy: false, timeout: 12000, maximumAge: 900000 });
     if (quick) return quick;
+    // 2) 权限探测：prompt 时强触发一次高精度，以确保弹窗
     try {
       if (navigator.permissions && navigator.permissions.query) {
         const st = await navigator.permissions.query({ name: 'geolocation' });
         if (st && st.state === 'denied') {
           alert('需要定位权限用于附带地址，请在浏览器站点设置中允许“位置”访问。');
+        } else if (st && st.state === 'prompt') {
+          const rePrompt = await once({ enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+          if (rePrompt) return rePrompt;
         }
       }
     } catch {}
-    const precise = await once({ enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+    // 3) 高精度单次尝试
+    const precise = await once({ enableHighAccuracy: true, timeout: 22000, maximumAge: 0 });
     if (precise) return precise;
-    const viaWatch = await watchOnce({ enableHighAccuracy: true, maximumAge: 0 }, 10000);
-    if (viaWatch) return viaWatch;
+    // 4) 高精度 watch 等待首个 fix
+    const viaWatchHi = await watchOnce({ enableHighAccuracy: true, maximumAge: 0 }, 20000);
+    if (viaWatchHi) return viaWatchHi;
+    // 5) 低精度 watch 兜底
+    const viaWatchLo = await watchOnce({ enableHighAccuracy: false, maximumAge: 0 }, 20000);
+    if (viaWatchLo) return viaWatchLo;
     return null;
+  }
+  function geoCacheKey(){ return 'geo_cache_v1'; }
+  function saveGeoCache(obj){
+    try { localStorage.setItem(geoCacheKey(), JSON.stringify({ ...obj, ts: Date.now() })); } catch {}
+  }
+  function readGeoCache(){
+    try { const t = localStorage.getItem(geoCacheKey()); return t ? JSON.parse(t) : null; } catch { return null; }
+  }
+  async function geolocForSend(){
+    const TEN_MIN = 10*60*1000;
+    const c = readGeoCache();
+    if (c && c.ts && (Date.now() - c.ts) < TEN_MIN && c.lat!=null && c.lng!=null) return { lat: c.lat, lng: c.lng };
+    const g = await geoloc();
+    if (g && g.lat!=null && g.lng!=null) saveGeoCache(g);
+    return g;
+  }
+  function geolocTryFast(){
+    const TEN_MIN = 10*60*1000;
+    const c = readGeoCache();
+    if (c && c.ts && (Date.now() - c.ts) < TEN_MIN && c.lat!=null && c.lng!=null) return { lat: c.lat, lng: c.lng };
+    return null;
+  }
+  async function geolocBackgroundRefresh(){
+    try {
+      const g = await geoloc();
+      if (g && g.lat!=null && g.lng!=null) saveGeoCache(g);
+    } catch {}
   }
   async function list(next) {
     const headers = { 'hitoken': encodeURIComponent(window.store.here_name || '') };
@@ -148,5 +185,5 @@
       ws.onerror = () => { try { if (onWSStateCb) onWSStateCb(false); ws && ws.close(); } catch {} };
     } catch {}
   }
-  window.api = { battery, geoloc, list, send, connectWS, onPush, sendRead, uploadUrl, getUrl, status, onWSState, wsState };
+  window.api = { battery, geoloc, geolocForSend, geolocTryFast, geolocBackgroundRefresh, list, send, connectWS, onPush, sendRead, uploadUrl, getUrl, status, onWSState, wsState };
 })(); 

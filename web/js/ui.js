@@ -39,6 +39,8 @@
   const imgViewer = document.getElementById('imgViewer');
   const imgViewPic = document.getElementById('imgViewPic');
   const expandedImgs = new Set();
+  const expandedMaps = new Set();
+  const dlBusy = new Set();
   let punchType = null;
   let punchMins = null;
   const TYPE_EMOJI = {
@@ -203,6 +205,13 @@
     const here = window.store.here_name || '';
     return '/media/' + encodeURIComponent(key||'') + '?t=' + encodeURIComponent(here) + '&a=' + encodeURIComponent(api);
   }
+  function mapUrlFor(lat, lng, zoom, size){
+    const base = window.API_BASE || '';
+    const z = zoom || 17;
+    const s = size || '750*300';
+    const path = '/api/map/static?lat=' + encodeURIComponent(String(lat)) + '&lng=' + encodeURIComponent(String(lng)) + '&zoom=' + encodeURIComponent(z) + '&size=' + encodeURIComponent(s);
+    return (base ? base : '') + path;
+  }
   if (imgViewer) {
     imgViewer.addEventListener('click', (e)=>{ if(e.target===imgViewer) openImageViewer(''); });
   }
@@ -226,14 +235,50 @@
         src = mediaUrlForKey(m.file.key);
       }
       if (src) {
+        dlBusy.add(ht); updateDlSpinners();
         img.src = src;
         img.onclick = ()=>{ openImageViewer(src); };
+        img.onload = ()=>{ dlBusy.delete(ht); updateDlSpinners(); };
+        img.onerror = ()=>{ dlBusy.delete(ht); updateDlSpinners(); loading.textContent = '加载失败'; };
         wrap.innerHTML = '';
         wrap.appendChild(img);
       } else {
         loading.textContent = '加载失败';
       }
     })();
+  }
+  function renderMapInline(host, m){
+    const ht = m.heart_time || 0;
+    const wrap = document.createElement('div');
+    const img = document.createElement('img');
+    img.style.maxWidth='72vw'; img.style.borderRadius='10px'; img.style.display='block';
+    const collapse = document.createElement('button');
+    collapse.className='btn outline'; collapse.textContent='收起';
+    collapse.onclick=()=>{ expandedMaps.delete(ht); render(); };
+    host.innerHTML = '';
+    host.append(wrap, collapse);
+    if (m.lat!=null && m.lng!=null){
+      const url = mapUrlFor(m.lat, m.lng, 17, '750*300');
+      dlBusy.add(ht); updateDlSpinners();
+      img.src = url;
+      img.onload = ()=>{ dlBusy.delete(ht); updateDlSpinners(); };
+      img.onerror = ()=>{ dlBusy.delete(ht); updateDlSpinners(); };
+      wrap.appendChild(img);
+    } else {
+      const fail = document.createElement('div');
+      fail.style.color='#888'; fail.textContent='无坐标';
+      wrap.appendChild(fail);
+    }
+  }
+  function updateDlSpinners(){
+    const nodes = document.querySelectorAll('.bubble[data-ht]');
+    nodes.forEach(n=>{
+      const ht = Number(n.getAttribute('data-ht')||'0');
+      let sp = n.querySelector('.dlspin');
+      const need = dlBusy.has(ht);
+      if (need && !sp){ sp = document.createElement('div'); sp.className='dlspin'; n.appendChild(sp); }
+      if (!need && sp){ sp.remove(); }
+    });
   }
   function bubble(m){
     const isSelf = (m.here_nick_name||'') === (window.store.nick||'');
@@ -285,10 +330,14 @@
     } else if (kind==='audio' && m.file && m.file.key) {
       const btn=document.createElement('button'); btn.className='btn outline'; btn.textContent=(m._status==='pending' && !m.file.key)?'【音频】(上传中…)':'【音频】';
       const show = async ()=>{
+        const ht = m.heart_time || 0;
         let url = m.file.local_url;
         if (!url) url = mediaUrlForKey(m.file.key);
         if (url) {
           const player = document.createElement('audio'); player.controls = true; player.src = url; player.style.width='72vw';
+          dlBusy.add(ht); updateDlSpinners();
+          player.oncanplaythrough = ()=>{ dlBusy.delete(ht); updateDlSpinners(); };
+          player.onerror = ()=>{ dlBusy.delete(ht); updateDlSpinners(); };
           const collapse = document.createElement('button'); collapse.className='btn outline'; collapse.textContent='收起';
           collapse.onclick=()=>{ player.pause(); msg.innerHTML=''; msg.appendChild(btn); };
           msg.innerHTML=''; msg.append(player, collapse);
@@ -312,12 +361,13 @@
       const btn=document.createElement('button'); btn.className='btn outline'; btn.textContent='【文件】';
       btn.onclick = async ()=>{
         btn.disabled=true;
+        const ht = m.heart_time || 0; dlBusy.add(ht); updateDlSpinners();
         let url = mediaUrlForKey(m.file.key);
         if (url) {
           const name = (m.file.key && m.file.key.split('/').pop()) || 'download';
           const a=document.createElement('a'); a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove();
         }
-        btn.disabled=false;
+        setTimeout(()=>{ dlBusy.delete(ht); updateDlSpinners(); btn.disabled=false; }, 1500);
       };
       msg.appendChild(btn);
     } else if (m.file && !m.file.key) {
@@ -339,11 +389,27 @@
       cdRow.setAttribute('data-ct', String(m.countdown_ts));
       cdRow.setAttribute('data-st', String(m.heart_time || 0));
     }
-    const loc=document.createElement('div'); loc.className='meta';
+    const loc=document.createElement('div'); loc.className='meta'; loc.style.flexDirection='column'; loc.style.alignItems='flex-start'; loc.style.gap='6px';
+    const locRow=document.createElement('div'); locRow.className='row';
     const btn=document.createElement('button'); btn.className='link'; btn.textContent='地址';
     const coords=document.createElement('span'); coords.className='hidden'; coords.textContent=(m.lat!=null&&m.lng!=null)?`${m.lat}, ${m.lng}`:'无';
-    btn.onclick=()=>{ coords.classList.toggle('hidden'); };
-    loc.append(btn, coords);
+    locRow.append(btn, coords);
+    const mapHost=document.createElement('div');
+    const ht = m.heart_time || 0;
+    btn.onclick=()=>{ 
+      const open = expandedMaps.has(ht);
+      if (open) {
+        expandedMaps.delete(ht);
+        mapHost.innerHTML='';
+        coords.classList.add('hidden');
+      } else {
+        expandedMaps.add(ht);
+        coords.classList.remove('hidden');
+        renderMapInline(mapHost, m);
+      }
+    };
+    if (expandedMaps.has(ht)) renderMapInline(mapHost, m);
+    loc.append(locRow, mapHost);
     wrap.append(top, second);
     wrap.appendChild(msg);
     if (cdRow) wrap.appendChild(cdRow);
@@ -615,11 +681,12 @@
     closePunch();
     // 后台获取电量与定位并发送，成功后合并更新占位
     (async()=>{
-      const [batt, geo] = await Promise.all([window.api.battery(), window.api.geoloc()]);
-      const res = await window.api.send({ nick: window.store.nick, battery: batt, lat: geo?.lat, lng: geo?.lng, message: composed, countdownTs });
+      const [batt, geoFast] = await Promise.all([window.api.battery(), Promise.resolve(window.api.geolocTryFast())]);
+      const res = await window.api.send({ nick: window.store.nick, battery: batt, lat: geoFast?.lat, lng: geoFast?.lng, message: composed, countdownTs });
       const serverTs = Number(res?.ts) || now;
-      window.store.updateByTime(now, { battery: batt, lat: geo?.lat, lng: geo?.lng, heart_time: serverTs, _status: 'sent' });
+      window.store.updateByTime(now, { battery: batt, lat: geoFast?.lat, lng: geoFast?.lng, heart_time: serverTs, _status: 'sent' });
       render();
+      if (!geoFast) window.api.geolocBackgroundRefresh();
     })().catch(()=>{ /* 保持占位，后续可加失败状态与重试 */ });
   }
   function wirePunchUI(){
@@ -676,11 +743,11 @@
     if (!node) { render(); }
     text.value=''; syncTextBoxButtons(); closeTextBox();
     (async()=>{
-      const [batt, geo] = await Promise.all([window.api.battery(), window.api.geoloc()]);
-      const res = await window.api.send({ nick: window.store.nick, here_nick_name: window.store.nick, battery: batt, lat: geo?.lat, lng: geo?.lng, message: v, msg: v, kind: 'text' });
+      const [batt, geoFast] = await Promise.all([window.api.battery(), Promise.resolve(window.api.geolocTryFast())]);
+      const res = await window.api.send({ nick: window.store.nick, here_nick_name: window.store.nick, battery: batt, lat: geoFast?.lat, lng: geoFast?.lng, message: v, msg: v, kind: 'text' });
       const serverTs = Number(res?.ts) || now;
-      window.store.updateByTime(now, { battery: batt, lat: geo?.lat, lng: geo?.lng, heart_time: serverTs, _status: 'sent' });
-      const finalItem = { here_name: window.store.here_name, heart_time: serverTs, here_nick_name: window.store.nick, battery: batt, lat: geo?.lat, lng: geo?.lng, msg: v, message: v, kind: 'text', _status: 'sent' };
+      window.store.updateByTime(now, { battery: batt, lat: geoFast?.lat, lng: geoFast?.lng, heart_time: serverTs, _status: 'sent' });
+      const finalItem = { here_name: window.store.here_name, heart_time: serverTs, here_nick_name: window.store.nick, battery: batt, lat: geoFast?.lat, lng: geoFast?.lng, msg: v, message: v, kind: 'text', _status: 'sent' };
       const pendingNode = document.querySelector(`.bubble[data-ht="${now}"]`);
       if (pendingNode) {
         pendingNode.replaceWith(bubble(finalItem));
@@ -697,6 +764,7 @@
           if (!inserted) listEl.insertBefore(bubble(finalItem), sentinel);
         }
       }
+      if (!geoFast) window.api.geolocBackgroundRefresh();
     })().catch(()=>{/* 保持占位，可加失败态 */})
     .finally(()=>{
       btnSend.disabled = false;
@@ -722,11 +790,11 @@
     const blob = new Blob(recChunks, { type: mime });
     const ext = mime==='audio/mp4'?'m4a':(mime.split('/')[1]||'bin');
     const now = Date.now();
-    const [batt, geo] = await Promise.all([window.api.battery(), window.api.geoloc()]);
+    const [batt, geoFast] = await Promise.all([window.api.battery(), Promise.resolve(window.api.geolocTryFast())]);
     const localUrl = URL.createObjectURL(blob);
     window.store.upsertMessage({
       here_name: window.store.here_name, heart_time: now,
-      here_nick_name: window.store.nick, battery: batt, lat: geo?.lat, lng: geo?.lng, msg: '', kind: 'audio', file: { key: null, local_url: localUrl, content_type: blob.type, size: blob.size, duration_ms: Date.now()-recStart }, _status: 'pending'
+      here_nick_name: window.store.nick, battery: batt, lat: geoFast?.lat, lng: geoFast?.lng, msg: '', kind: 'audio', file: { key: null, local_url: localUrl, content_type: blob.type, size: blob.size, duration_ms: Date.now()-recStart }, _status: 'pending'
     });
     render();
     const up = await window.api.uploadUrl(blob.type, '.'+ext);
@@ -734,13 +802,14 @@
     const { key, url } = up;
     await fetch(url, { method: 'PUT', headers: { 'Content-Type': blob.type }, body: blob });
     try{
-      const res = await window.api.send({ nick: window.store.nick, here_nick_name: window.store.nick, battery: batt, lat: geo?.lat, lng: geo?.lng, message: '', kind: 'audio', file: { key, content_type: blob.type, size: blob.size, duration_ms: Date.now()-recStart } });
+      const res = await window.api.send({ nick: window.store.nick, here_nick_name: window.store.nick, battery: batt, lat: geoFast?.lat, lng: geoFast?.lng, message: '', kind: 'audio', file: { key, content_type: blob.type, size: blob.size, duration_ms: Date.now()-recStart } });
       const serverTs = Number(res?.ts) || now;
       window.store.updateByTime(now, { heart_time: serverTs, _status: 'sent', file: { key, local_url: localUrl, content_type: blob.type, size: blob.size, duration_ms: Date.now()-recStart } });
       render();
     } finally {
       hideMsgBar();
     }
+    if (!geoFast) window.api.geolocBackgroundRefresh();
   }
   function stopRecord(){
     if (rec) try { rec.stop(); } catch {}
@@ -749,20 +818,21 @@
     const ct = file.type || 'application/octet-stream';
     const ext = (file.name && file.name.includes('.')) ? file.name.substring(file.name.lastIndexOf('.')) : '';
     const now = Date.now();
-    const [batt, geo] = await Promise.all([window.api.battery(), window.api.geoloc()]);
+    const [batt, geoFast] = await Promise.all([window.api.battery(), Promise.resolve(window.api.geolocTryFast())]);
     const localUrl = (kind==='image' || kind==='audio') ? URL.createObjectURL(file) : null;
-    window.store.upsertMessage({ here_name: window.store.here_name, heart_time: now, here_nick_name: window.store.nick, battery: batt, lat: geo?.lat, lng: geo?.lng, msg: '', kind, file: { key: null, local_url: localUrl, content_type: ct, size: file.size }, _status: 'pending' });
+    window.store.upsertMessage({ here_name: window.store.here_name, heart_time: now, here_nick_name: window.store.nick, battery: batt, lat: geoFast?.lat, lng: geoFast?.lng, msg: '', kind, file: { key: null, local_url: localUrl, content_type: ct, size: file.size }, _status: 'pending' });
     render();
     const up = await window.api.uploadUrl(ct, ext);
     if (!up || !up.url || !up.key) { alert('获取上传地址失败'); hideMsgBar(); return; }
     const { key, url } = up;
     await fetch(url, { method: 'PUT', headers: { 'Content-Type': ct }, body: file });
     try{
-      const res = await window.api.send({ nick: window.store.nick, here_nick_name: window.store.nick, battery: batt, lat: geo?.lat, lng: geo?.lng, message: '', kind, file: { key, content_type: ct, size: file.size } });
+      const res = await window.api.send({ nick: window.store.nick, here_nick_name: window.store.nick, battery: batt, lat: geoFast?.lat, lng: geoFast?.lng, message: '', kind, file: { key, content_type: ct, size: file.size } });
       const serverTs = Number(res?.ts) || now;
       window.store.updateByTime(now, { heart_time: serverTs, _status: 'sent', file: { key, local_url: localUrl, content_type: ct, size: file.size } });
       render();
     } finally { hideMsgBar(); }
+    if (!geoFast) window.api.geolocBackgroundRefresh();
   }
   function wireMsgBar(){
     btnMsg.onclick=()=>{ showMsgBar(); };

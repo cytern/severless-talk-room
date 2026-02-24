@@ -104,5 +104,25 @@ export class HelloApiStack extends cdk.Stack {
     httpSite.api.addRoutes({ path: '/api/upload-url', methods: [apigwv2.HttpMethod.POST], integration: upInt });
     httpSite.api.addRoutes({ path: '/api/get-url', methods: [apigwv2.HttpMethod.GET], integration: getInt });
     new cdk.CfnOutput(this, 'MediaBucketName', { value: mediaBucket.bucketName });
+
+    // AMap static map proxy (no API key in frontend)
+    const amapKey = process.env.AMAP_KEY || this.node.tryGetContext('amapKey') || '';
+    const amapParamName = this.node.tryGetContext('amapParamName') || process.env.AMAP_PARAM_NAME || '/hihere/amap_key';
+    const mapStatic = new lambda.Function(this, 'AmapStaticFn', {
+      runtime: lambda.Runtime.NODEJS_18_X,
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset('bin/lambda/map/static'),
+      timeout: cdk.Duration.seconds(10),
+      environment: { AMAP_KEY: amapKey, AMAP_PARAM_NAME: amapParamName },
+      layers: [awsSdkLayer.layer]
+    });
+    // Allow Lambda to read SSM parameter if provided
+    const paramArn = `arn:aws:ssm:${region}:${account}:parameter${amapParamName.startsWith('/') ? '' : '/'}${amapParamName.replace(/^\//,'')}`;
+    mapStatic.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['ssm:GetParameter'],
+      resources: [paramArn]
+    }));
+    const mapInt = new integrations.HttpLambdaIntegration('AmapStaticInt', mapStatic);
+    httpSite.api.addRoutes({ path: '/api/map/static', methods: [apigwv2.HttpMethod.GET], integration: mapInt });
   }
 }
