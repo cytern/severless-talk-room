@@ -8,6 +8,7 @@
   const btnRefresh = document.getElementById('btnRefresh');
   const wsDot = document.getElementById('wsDot');
   const wsText = document.getElementById('wsText');
+  const geoCount = document.getElementById('geoCount');
   const compose = document.getElementById('compose');
   const text = document.getElementById('text');
   const msgBar = document.getElementById('msgBar');
@@ -284,7 +285,7 @@
     const isSelf = (m.here_nick_name||'') === (window.store.nick||'');
     const wrap=document.createElement('div');
     if (isSelf) {
-      const st = (m._status==='pending') ? 'pending' : ((m.read_count||0)>0 ? 'read' : 'sent');
+      const st = (m._status==='pending') ? 'pending' : (m._status==='failed' ? 'failed' : ((m.read_count||0)>0 ? 'read' : 'sent'));
       wrap.className = `bubble self ${st}`;
     } else {
       wrap.className = 'bubble';
@@ -411,6 +412,15 @@
     if (expandedMaps.has(ht)) renderMapInline(mapHost, m);
     loc.append(locRow, mapHost);
     wrap.append(top, second);
+    if (isSelf) {
+      if (m._status === 'pending') {
+        const sp=document.createElement('div'); sp.className='sendspin'; wrap.appendChild(sp);
+      } else if (m._status === 'failed') {
+        const ff=document.createElement('div'); ff.className='sendfail'; ff.textContent='!'; ff.title='点击重试';
+        ff.onclick = (e)=>{ e.stopPropagation && e.stopPropagation(); retrySend(m.heart_time); };
+        wrap.appendChild(ff);
+      }
+    }
     wrap.appendChild(msg);
     if (cdRow) wrap.appendChild(cdRow);
     wrap.appendChild(loc);
@@ -477,42 +487,78 @@
   function scrollToBottom(){
     try { window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }); } catch { window.scrollTo(0, document.body.scrollHeight); }
   }
-  // ws indicator
-  const peerSeen = new Map();
-  function updateWsIndicator(){
-    if (!wsDot || !wsText) return;
-    const now = Date.now();
-    let onlinePeers = 0;
-    for (const [k, t] of peerSeen.entries()){
-      if (now - t < 5*60*1000) onlinePeers++;
+  let geoCycleTimer=null, geoCountdownTimer=null, geoCountdownTarget=0;
+  function setAppStatus(txt, color, countdownMs){
+    if (wsDot) wsDot.style.background = color || '#bbb';
+    if (wsText) wsText.textContent = txt || '';
+    if (geoCount) {
+      if (countdownMs && countdownMs>0) {
+        geoCountdownTarget = Date.now() + countdownMs;
+        const tick = ()=>{
+          const remain = Math.max(0, geoCountdownTarget - Date.now());
+          const s = Math.floor(remain/1000);
+          const mm = String(Math.floor(s/60)).padStart(2,'0');
+          const ss = String(s%60).padStart(2,'0');
+          geoCount.textContent = s>0 ? ` ${mm}:${ss}` : '';
+          if (s>0) geoCountdownTimer = setTimeout(tick, 1000);
+          else geoCountdownTimer = null;
+        };
+        if (geoCountdownTimer) { try { clearTimeout(geoCountdownTimer); } catch {} geoCountdownTimer=null; }
+        tick();
+      } else {
+        geoCount.textContent = '';
+        if (geoCountdownTimer) { try { clearTimeout(geoCountdownTimer); } catch {} geoCountdownTimer=null; }
+      }
     }
-    const connected = (window.api.wsState && window.api.wsState() === 1);
-    const strong = connected && onlinePeers >= 2;
-    wsDot.style.background = strong ? '#07c160' : (connected ? '#91d5ff' : '#bbb');
-    wsText.textContent = connected ? (strong ? '在线(多人)' : '在线') : '离线';
   }
-  window.api.onPush((item)=>{
-    if (item && item.here_nick_name) {
-      const me = window.store.nick||'';
-      if (item.here_nick_name !== me) peerSeen.set(item.here_nick_name, Date.now());
+  async function startGeoBatteryCycle(){
+    if (geoCycleTimer) { try { clearTimeout(geoCycleTimer); } catch {} geoCycleTimer=null; }
+    setAppStatus('经纬度获取中', '#faad14', 0);
+    try {
+      const p = window.api.battery && window.api.battery();
+      if (p && typeof p.then==='function') {
+        p.then(v=>{ try { if(window.api.saveBatteryCache) window.api.saveBatteryCache(v); } catch {} });
+      } else if (window.api.batteryForSend) {
+        const v = window.api.batteryForSend();
+        try { if(window.api.saveBatteryCache) window.api.saveBatteryCache(v); } catch {}
+      }
+    } catch {}
+    let g = null;
+    try { g = await (window.api.geoloc && window.api.geoloc()); } catch {}
+    if (g && g.lat!=null && g.lng!=null) {
+      try { if (window.api.geolocSaveCache) window.api.geolocSaveCache(g); } catch {}
+      setAppStatus('定位成功', '#52c41a', 5*60*1000);
+      geoCycleTimer = setTimeout(()=>{ startGeoBatteryCycle(); }, 5*60*1000);
+    } else {
+      setAppStatus('经纬度获取中', '#faad14', 0);
+      geoCycleTimer = setTimeout(()=>{ startGeoBatteryCycle(); }, 20000);
     }
+  }
+  document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') startGeoBatteryCycle(); }, { passive: true });
+  function updateWsIndicator(){}
+  window.api.onPush((item)=>{
     updateWsIndicator();
     const me = window.store.nick||'';
+    const here = window.store.here_name || '';
+    if (!item) return;
     if (item && item.here_nick_name === me) {
       const minePending = (window.store.messages||[]).find(x => x._status==='pending' && x.here_nick_name===me && (x.msg||'')===(item.msg||'') && (x.kind||'text')===(item.kind||'text'));
       if (minePending) {
         const oldTs = minePending.heart_time;
-        window.store.updateByTime(oldTs, { heart_time: item.heart_time, _status: 'sent', readers: item.readers, read_count: item.read_count, file: item.file });
+        window.store.updateByTime(oldTs, { heart_time: item.heart_time, _status: 'sent', readers: item.readers, read_count: item.read_count, file: item.file, battery: item.battery, lat: item.lat, lng: item.lng });
         const oldNode = document.querySelector(`.bubble[data-ht="${oldTs}"]`);
-        if (oldNode) oldNode.replaceWith(bubble(item));
+        if (oldNode) oldNode.replaceWith(bubble({ ...minePending, ...item }));
         return;
       }
     }
-    if (item && document.querySelector(`.bubble[data-ht="${item.heart_time}"]`)) {
-      const el = document.querySelector(`.bubble[data-ht="${item.heart_time}"]`);
-      const newNode = bubble(item);
-      el.replaceWith(newNode);
-    } else if (item) {
+    const prev = (window.store.messages||[]).find(x => x.here_name===here && x.heart_time===item.heart_time);
+    const changed = !prev || prev.msg!==item.msg || prev.read_count!==item.read_count || JSON.stringify(prev.readers||[])!==JSON.stringify(item.readers||[]) || (prev.file?.key)!==(item.file?.key) || prev.battery!==item.battery || prev.lat!==item.lat || prev.lng!==item.lng;
+    if (!changed) return;
+    window.store.updateByTime(item.heart_time, { here_name: here, here_nick_name: item.here_nick_name, msg: item.msg, kind: item.kind, readers: item.readers, read_count: item.read_count, file: item.file, battery: item.battery, lat: item.lat, lng: item.lng, _status: 'sent' });
+    const node = document.querySelector(`.bubble[data-ht="${item.heart_time}"]`);
+    if (node) {
+      node.replaceWith(bubble({ ...(prev||{}), ...item }));
+    } else {
       render();
     }
   });
@@ -599,19 +645,14 @@
       planet.textContent=window.store.here_name;
     }
   }
-  function showMsgBar(){ btnPunch.style.display='none'; btnMsg.style.display='none'; msgBar.style.display='flex'; }
-  function hideMsgBar(){ msgBar.style.display='none'; moreSheet.style.display='none'; textBox.style.display='none'; btnPunch.style.display=''; btnMsg.style.display=''; text.value=''; }
-  function openTextBox(){ msgBar.style.display='none'; textBox.style.display='flex'; text.focus(); }
-  function closeTextBox(){ textBox.style.display='none'; msgBar.style.display='flex'; }
-  function syncTextBoxButtons(){
+  function hideMsgBar(){ if (moreSheet) moreSheet.style.display='none'; if (composerRow) composerRow.style.display='flex'; }
+  function syncComposerButton(){
+    if (!text || !btnSend) return;
     const has = text.value.trim().length>0;
-    const send = document.getElementById('btnSend');
-    const back = document.getElementById('btnBack');
-    if (send) send.style.display = has ? '' : 'none';
-    if (back) back.style.display = has ? 'none' : '';
+    if (has) { btnSend.textContent='发送'; btnSend.className='btn secondary'; }
+    else { btnSend.textContent='更多'; btnSend.className='btn outline'; }
   }
-  document.getElementById('btnBack') && (document.getElementById('btnBack').onclick = ()=>{ closeTextBox(); });
-  text && (text.oninput = ()=>{ syncTextBoxButtons(); });
+  text && (text.oninput = ()=>{ syncComposerButton(); });
   if (text) {
     text.addEventListener('keydown', (e)=>{
       if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && !e.isComposing) {
@@ -619,8 +660,6 @@
         const val = text.value.trim();
         if (val) {
           btnSend && btnSend.click();
-        } else {
-          closeTextBox();
         }
       }
     });
@@ -678,13 +717,14 @@
     const label = punchType || inpTypeCustom.value.trim();
     const emoji = TYPE_EMOJI[label] || '🏷️';
     const composed = label ? (msgv ? `${emoji} ${label}｜${msgv}` : `${emoji} ${label}`) : msgv;
-    // 乐观插入占位（不等待电量与地理定位）
+    const batt = window.api.batteryForSend ? window.api.batteryForSend() : null;
+    const geoFast = window.api.geolocTryFast ? window.api.geolocTryFast() : null;
     window.store.upsertMessage({
       here_name: window.store.here_name,
       heart_time: now,
       here_nick_name: window.store.nick,
-      battery: null,
-      lat: null, lng: null,
+      battery: batt,
+      lat: geoFast?.lat ?? null, lng: geoFast?.lng ?? null,
       msg: composed, message: composed,
       kind: 'text',
       countdown_ts: countdownTs,
@@ -692,14 +732,11 @@
     });
     render();
     closePunch();
-    // 后台获取电量与定位并发送，成功后合并更新占位
     (async()=>{
-      const [batt, geoFast] = await Promise.all([window.api.battery(), window.api.geolocForSend()]);
       const res = await window.api.send({ nick: window.store.nick, battery: batt, lat: geoFast?.lat, lng: geoFast?.lng, message: composed, countdownTs });
       const serverTs = Number(res?.ts) || now;
       window.store.updateByTime(now, { battery: batt, lat: geoFast?.lat, lng: geoFast?.lng, heart_time: serverTs, _status: 'sent' });
       render();
-      if (!geoFast) window.api.geolocBackgroundRefresh();
     })().catch(()=>{ /* 保持占位，后续可加失败状态与重试 */ });
   }
   function wirePunchUI(){
@@ -745,18 +782,22 @@
     tick();
   }
   async function sendText(){
-    const v=text.value.trim(); if(!v){ closeCompose(); return; }
+    const v=text.value.trim(); if(!v){ return; }
     btnSend.disabled = true;
     const now = Date.now();
+    const batt0 = window.api.batteryForSend ? window.api.batteryForSend() : null;
+    const geo0 = window.api.geolocTryFast ? window.api.geolocTryFast() : null;
     window.store.upsertMessage({
       here_name: window.store.here_name, heart_time: now,
-      here_nick_name: window.store.nick, battery: null, lat: null, lng: null, msg: v, message: v, kind: 'text', _status: 'pending'
+      here_nick_name: window.store.nick, battery: batt0, lat: geo0?.lat ?? null, lng: geo0?.lng ?? null, msg: v, message: v, kind: 'text', _status: 'pending'
     });
     const node = document.querySelector(`.bubble[data-ht="${now}"]`);
     if (!node) { render(); }
-    text.value=''; syncTextBoxButtons(); closeTextBox();
+    try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch {}
+    text.value=''; syncComposerButton();
     (async()=>{
-      const [batt, geoFast] = await Promise.all([window.api.battery(), window.api.geolocForSend()]);
+      const batt = batt0;
+      const geoFast = geo0;
       const res = await window.api.send({ nick: window.store.nick, here_nick_name: window.store.nick, battery: batt, lat: geoFast?.lat, lng: geoFast?.lng, message: v, msg: v, kind: 'text' });
       const serverTs = Number(res?.ts) || now;
       window.store.updateByTime(now, { battery: batt, lat: geoFast?.lat, lng: geoFast?.lng, heart_time: serverTs, _status: 'sent' });
@@ -777,8 +818,7 @@
           if (!inserted) listEl.insertBefore(bubble(finalItem), sentinel);
         }
       }
-      if (!geoFast) window.api.geolocBackgroundRefresh();
-    })().catch(()=>{/* 保持占位，可加失败态 */})
+    })().catch(()=>{ window.store.updateByTime(now, { _status: 'failed' }); render(); })
     .finally(()=>{
       btnSend.disabled = false;
     });
@@ -799,89 +839,184 @@
     mr.onstop = ()=>{ rec = null; stream.getTracks().forEach(t=>t.stop()); onRecordReady(mime||recChunks[0]?.type||'audio/webm'); };
     rec = mr; mr.start();
   }
+  let recTimerId = null, keepWakeLock = null, keepCtx = null, keepOsc = null, keepGain = null, noSleepInst = null;
+  function fmtTimer(ms){ const s=Math.floor(ms/1000); const mm=String(Math.floor(s/60)).padStart(2,'0'); const ss=String(s%60).padStart(2,'0'); return `${mm}:${ss}`; }
+  function isIOS(){ return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.userAgent.includes('Mac') && 'ontouchend' in document); }
+  async function keepAwakeStart(){
+    if (window.NoSleep) {
+      try { if (!noSleepInst) noSleepInst = new window.NoSleep(); noSleepInst.enable(); return; } catch {}
+    }
+    if (navigator.wakeLock && navigator.wakeLock.request) {
+      try { keepWakeLock = await navigator.wakeLock.request('screen'); } catch {}
+    } else if (isIOS()) {
+      try {
+        keepCtx = new (window.AudioContext||window.webkitAudioContext)();
+        keepGain = keepCtx.createGain(); keepGain.gain.value = 0.0001;
+        keepOsc = keepCtx.createOscillator(); keepOsc.frequency.value = 10;
+        keepOsc.connect(keepGain); keepGain.connect(keepCtx.destination); keepOsc.start();
+      } catch {}
+    }
+  }
+  function keepAwakeStop(){
+    try { if (noSleepInst && noSleepInst.disable) noSleepInst.disable(); } catch {}
+    try { if (keepWakeLock && keepWakeLock.release) keepWakeLock.release(); } catch {}
+    keepWakeLock = null;
+    try { if (keepOsc) keepOsc.stop(); } catch {} 
+    keepOsc = null;
+    try { if (keepCtx && keepCtx.close) keepCtx.close(); } catch {}
+    keepCtx = null; keepGain = null;
+  }
+  const recModal = document.getElementById('recModal');
+  const recTimerEl = document.getElementById('recTimer');
+  const recDoneBtn = document.getElementById('recDone');
+  function openRecModal(){
+    if (!recModal) return;
+    recModal.style.display = 'flex';
+    if (recTimerEl) recTimerEl.textContent = '00:00';
+    startRecord();
+    keepAwakeStart();
+    const tick = ()=>{
+      if (!recModal || recModal.style.display==='none') { recTimerId=null; return; }
+      if (recTimerEl) recTimerEl.textContent = fmtTimer(Date.now()-recStart);
+      recTimerId = setTimeout(tick, 500);
+    };
+    if (recTimerId) { try { clearTimeout(recTimerId); } catch {} recTimerId=null; }
+    tick();
+  }
+  function closeRecModal(){
+    if (recModal) recModal.style.display = 'none';
+    if (recTimerId) { try { clearTimeout(recTimerId); } catch {} recTimerId=null; }
+    keepAwakeStop();
+  }
+  if (recDoneBtn) recDoneBtn.onclick = ()=>{ stopRecord(); closeRecModal(); };
   async function onRecordReady(mime){
     const blob = new Blob(recChunks, { type: mime });
     const ext = mime==='audio/mp4'?'m4a':(mime.split('/')[1]||'bin');
     const now = Date.now();
-    const [batt, geoFast] = await Promise.all([window.api.battery(), window.api.geolocForSend()]);
+    const batt = window.api.batteryForSend ? window.api.batteryForSend() : null;
+    const geoFast = window.api.geolocTryFast ? window.api.geolocTryFast() : null;
     const localUrl = URL.createObjectURL(blob);
     window.store.upsertMessage({
       here_name: window.store.here_name, heart_time: now,
       here_nick_name: window.store.nick, battery: batt, lat: geoFast?.lat, lng: geoFast?.lng, msg: '', kind: 'audio', file: { key: null, local_url: localUrl, content_type: blob.type, size: blob.size, duration_ms: Date.now()-recStart }, _status: 'pending'
     });
     render();
+    try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch {}
     const up = await window.api.uploadUrl(blob.type, '.'+ext);
     if (!up || !up.url || !up.key) { alert('获取上传地址失败'); hideMsgBar(); return; }
     const { key, url } = up;
-    await fetch(url, { method: 'PUT', headers: { 'Content-Type': blob.type }, body: blob });
-    try{
+    try {
+      await fetch(url, { method: 'PUT', headers: { 'Content-Type': blob.type }, body: blob });
       const res = await window.api.send({ nick: window.store.nick, here_nick_name: window.store.nick, battery: batt, lat: geoFast?.lat, lng: geoFast?.lng, message: '', kind: 'audio', file: { key, content_type: blob.type, size: blob.size, duration_ms: Date.now()-recStart } });
       const serverTs = Number(res?.ts) || now;
       window.store.updateByTime(now, { heart_time: serverTs, _status: 'sent', file: { key, local_url: localUrl, content_type: blob.type, size: blob.size, duration_ms: Date.now()-recStart } });
       render();
+    } catch {
+      window.store.updateByTime(now, { _status: 'failed' });
+      render();
     } finally {
       hideMsgBar();
     }
-    if (!geoFast) window.api.geolocBackgroundRefresh();
   }
   function stopRecord(){
     if (rec) try { rec.stop(); } catch {}
   }
+  async function retrySend(ht){
+    const here = window.store.here_name || '';
+    const m = (window.store.messages||[]).find(x => x.here_name===here && x.heart_time===ht);
+    if (!m) return;
+    const batt = window.api.batteryForSend ? window.api.batteryForSend() : null;
+    const geo = window.api.geolocTryFast ? window.api.geolocTryFast() : null;
+    window.store.updateByTime(ht, { _status: 'pending' }); render();
+    try{
+      if ((m.kind||'text') === 'text') {
+        const res = await window.api.send({ nick: window.store.nick, here_nick_name: window.store.nick, battery: batt, lat: geo?.lat, lng: geo?.lng, message: m.msg||'', msg: m.msg||'', kind: 'text' });
+        const serverTs = Number(res?.ts) || ht;
+        window.store.updateByTime(ht, { heart_time: serverTs, _status: 'sent', battery: batt, lat: geo?.lat, lng: geo?.lng });
+        render();
+        return;
+      }
+      if (m.file && m.file.key) {
+        const res = await window.api.send({ nick: window.store.nick, here_nick_name: window.store.nick, battery: batt, lat: geo?.lat, lng: geo?.lng, message: '', kind: m.kind||'file', file: { key: m.file.key, content_type: m.file.content_type, size: m.file.size, duration_ms: m.file.duration_ms } });
+        const serverTs = Number(res?.ts) || ht;
+        window.store.updateByTime(ht, { heart_time: serverTs, _status: 'sent', battery: batt, lat: geo?.lat, lng: geo?.lng });
+        render();
+        return;
+      }
+      if (m.file && m.file.local_url && !m.file.key) {
+        const resp = await fetch(m.file.local_url);
+        const blob = await resp.blob();
+        const ct = m.file.content_type || blob.type || 'application/octet-stream';
+        const ext = ct==='audio/mp4' ? '.m4a' : (ct.includes('/')?('.'+ct.split('/')[1]):'.bin');
+        const up = await window.api.uploadUrl(ct, ext);
+        if (!up || !up.url || !up.key) throw new Error('no upload url');
+        await fetch(up.url, { method: 'PUT', headers: { 'Content-Type': ct }, body: blob });
+        const res = await window.api.send({ nick: window.store.nick, here_nick_name: window.store.nick, battery: batt, lat: geo?.lat, lng: geo?.lng, message: '', kind: m.kind||'file', file: { key: up.key, content_type: ct, size: blob.size, duration_ms: m.file.duration_ms } });
+        const serverTs = Number(res?.ts) || ht;
+        window.store.updateByTime(ht, { heart_time: serverTs, _status: 'sent', file: { ...m.file, key: up.key, content_type: ct, size: blob.size } });
+        render();
+        return;
+      }
+      throw new Error('unsupported retry');
+    } catch {
+      window.store.updateByTime(ht, { _status: 'failed' }); render();
+    }
+  }
   async function onPickFile(file, kind){
     const ct = file.type || 'application/octet-stream';
-    const ext = (file.name && file.name.includes('.')) ? file.name.substring(file.name.lastIndexOf('.')) : '';
+    const ext = (file.name && file.name.includes('.')) ? file.name.substring(file.lastIndexOf('.')) : '';
     const now = Date.now();
-    const [batt, geoFast] = await Promise.all([window.api.battery(), window.api.geolocForSend()]);
+    const batt = window.api.batteryForSend ? window.api.batteryForSend() : null;
+    const geoFast = window.api.geolocTryFast ? window.api.geolocTryFast() : null;
     const localUrl = (kind==='image' || kind==='audio') ? URL.createObjectURL(file) : null;
     window.store.upsertMessage({ here_name: window.store.here_name, heart_time: now, here_nick_name: window.store.nick, battery: batt, lat: geoFast?.lat, lng: geoFast?.lng, msg: '', kind, file: { key: null, local_url: localUrl, content_type: ct, size: file.size }, _status: 'pending' });
     render();
-    const up = await window.api.uploadUrl(ct, ext);
-    if (!up || !up.url || !up.key) { alert('获取上传地址失败'); hideMsgBar(); return; }
-    const { key, url } = up;
-    await fetch(url, { method: 'PUT', headers: { 'Content-Type': ct }, body: file });
+    try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch {}
     try{
+      const up = await window.api.uploadUrl(ct, ext);
+      if (!up || !up.url || !up.key) { throw new Error('no upload url'); }
+      const { key, url } = up;
+      await fetch(url, { method: 'PUT', headers: { 'Content-Type': ct }, body: file });
       const res = await window.api.send({ nick: window.store.nick, here_nick_name: window.store.nick, battery: batt, lat: geoFast?.lat, lng: geoFast?.lng, message: '', kind, file: { key, content_type: ct, size: file.size } });
       const serverTs = Number(res?.ts) || now;
       window.store.updateByTime(now, { heart_time: serverTs, _status: 'sent', file: { key, local_url: localUrl, content_type: ct, size: file.size } });
       render();
+    } catch {
+      window.store.updateByTime(now, { _status: 'failed' });
+      render();
     } finally { hideMsgBar(); }
-    if (!geoFast) window.api.geolocBackgroundRefresh();
   }
-  function wireMsgBar(){
-    btnMsg.onclick=()=>{ showMsgBar(); };
-    btnText.onclick=()=>{ openTextBox(); };
-    btnMore.onclick=(e)=>{ 
-      e.stopPropagation && e.stopPropagation();
-      const showing = moreSheet.style.display === 'block';
-      moreSheet.style.display = showing ? 'none' : 'block';
-    };
-    document.addEventListener('click', (e)=>{
-      if (moreSheet.style.display === 'block') {
-        const inPanel = moreSheet.contains(e.target);
-        const onBtn = btnMore.contains(e.target);
-        if (!inPanel && !onBtn) moreSheet.style.display = 'none';
-      }
-    }, { passive: true });
-    window.addEventListener('scroll', ()=>{ if(moreSheet.style.display==='block') moreSheet.style.display='none'; }, { passive: true });
-    btnVoice.addEventListener('mousedown', startRecord);
-    btnVoice.addEventListener('touchstart', (e)=>{ e.preventDefault(); startRecord(); }, { passive: false });
-    const end = ()=>stopRecord();
-    btnVoice.addEventListener('mouseup', end);
-    btnVoice.addEventListener('mouseleave', end);
-    btnVoice.addEventListener('touchend', end);
-    btnVoice.addEventListener('touchcancel', end);
-    document.getElementById('moreImage').onclick=()=>{ pickImage.click(); };
-    document.getElementById('moreFile').onclick=()=>{ pickFile.click(); };
-    document.getElementById('moreCamera').onclick=()=>{ pickCamera.click(); };
+  function wireComposer(){
+    syncComposerButton();
+    if (btnSend) {
+      btnSend.onclick = ()=>{
+        const v = (text && text.value.trim()) || '';
+        if (v) { sendText(); }
+        else {
+          if (composerRow) composerRow.style.display='none';
+          if (moreSheet) moreSheet.style.display='block';
+        }
+      };
+    }
+    const btnMoreBack = document.getElementById('btnMoreBack');
+    const menuPunch = document.getElementById('menuPunch');
+    const menuVoice = document.getElementById('menuVoice');
+    const menuImage = document.getElementById('menuImage');
+    const menuCamera = document.getElementById('menuCamera');
+    const menuFile = document.getElementById('menuFile');
+    if (btnMoreBack) btnMoreBack.onclick = ()=>{ if (moreSheet) moreSheet.style.display='none'; if (composerRow) composerRow.style.display='flex'; };
+    if (menuPunch) menuPunch.onclick = ()=>{ if (moreSheet) moreSheet.style.display='none'; if (composerRow) composerRow.style.display='flex'; punch(); };
+    if (menuVoice) menuVoice.onclick = ()=>{ if (moreSheet) moreSheet.style.display='none'; if (composerRow) composerRow.style.display='flex'; openRecModal(); };
+    if (menuImage) menuImage.onclick = ()=>{ if (pickImage) pickImage.click(); };
+    if (menuCamera) menuCamera.onclick = ()=>{ if (pickCamera) pickCamera.click(); };
+    if (menuFile) menuFile.onclick = ()=>{ if (pickFile) pickFile.click(); };
     pickImage.onchange = async (e)=>{ const f=e.target.files&&e.target.files[0]; if(f) await onPickFile(f, 'image'); e.target.value=''; };
     pickCamera.onchange = async (e)=>{ const f=e.target.files&&e.target.files[0]; if(f) await onPickFile(f, 'image'); e.target.value=''; };
     pickFile.onchange = async (e)=>{ const f=e.target.files&&e.target.files[0]; if(f) await onPickFile(f, 'file'); e.target.value=''; };
   }
   const io = new IntersectionObserver(es=>{ if(es[0].isIntersecting && !noMore){ loadMore(); } },{rootMargin:'200px'});
   io.observe(sentinel);
-  btnPunch.onclick=punch;
-  btnMsg.onclick=()=>showMsgBar();
-  btnSend.onclick=()=>sendText();
+  if (btnSend) { btnSend.onclick = ()=>{ const v=(text&&text.value.trim())||''; if(v) sendText(); else { if (composerRow) composerRow.style.display='none'; if (moreSheet) moreSheet.style.display='block'; } }; }
   btnRefresh.onclick=()=>onRefreshClick();
-  (async () => { await ensureProfile(); window.store.loadCache(); render(); await reconcileReadStatus(); await refreshLatest(); updateWsIndicator(); window.api.connectWS(); wirePunchUI(); wireMsgBar(); })();
+  (async () => { await ensureProfile(); window.store.loadCache(); render(); await reconcileReadStatus(); await refreshLatest(); startGeoBatteryCycle(); updateWsIndicator(); window.api.connectWS(); wirePunchUI(); wireComposer(); })();
 })(); 

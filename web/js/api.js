@@ -12,6 +12,20 @@
     }
     return Math.floor(20 + Math.random() * 70);
   }
+  function batteryCacheKey(){ return 'battery_cache_v1'; }
+  function saveBatteryCache(pct){
+    try { localStorage.setItem(batteryCacheKey(), JSON.stringify({ v: Number(pct)||0, ts: Date.now() })); } catch {}
+  }
+  function readBatteryCache(){
+    try { const t = localStorage.getItem(batteryCacheKey()); return t ? JSON.parse(t) : null; } catch { return null; }
+  }
+  function batteryForSend(){
+    const c = readBatteryCache();
+    if (c && typeof c.v === 'number') return c.v;
+    const v = Math.floor(20 + Math.random() * 70);
+    saveBatteryCache(v);
+    return v;
+  }
   async function geoloc() {
     const once = (opts) => new Promise(res => {
       if (!navigator.geolocation) return res(null);
@@ -60,21 +74,22 @@
   function saveGeoCache(obj){
     try { localStorage.setItem(geoCacheKey(), JSON.stringify({ ...obj, ts: Date.now() })); } catch {}
   }
+  function geolocSaveCache(obj){ saveGeoCache(obj||{}); }
   function readGeoCache(){
     try { const t = localStorage.getItem(geoCacheKey()); return t ? JSON.parse(t) : null; } catch { return null; }
   }
   async function geolocForSend(){
-    const TEN_MIN = 10*60*1000;
+    const FIVE_MIN = 5*60*1000;
     const c = readGeoCache();
-    if (c && c.ts && (Date.now() - c.ts) < TEN_MIN && c.lat!=null && c.lng!=null) return { lat: c.lat, lng: c.lng };
+    if (c && c.ts && (Date.now() - c.ts) < FIVE_MIN && c.lat!=null && c.lng!=null) return { lat: c.lat, lng: c.lng };
     const g = await geoloc();
     if (g && g.lat!=null && g.lng!=null) saveGeoCache(g);
     return g;
   }
   function geolocTryFast(){
-    const TEN_MIN = 10*60*1000;
+    const FIVE_MIN = 5*60*1000;
     const c = readGeoCache();
-    if (c && c.ts && (Date.now() - c.ts) < TEN_MIN && c.lat!=null && c.lng!=null) return { lat: c.lat, lng: c.lng };
+    if (c && c.ts && (Date.now() - c.ts) < FIVE_MIN && c.lat!=null && c.lng!=null) return { lat: c.lat, lng: c.lng };
     return null;
   }
   async function geolocBackgroundRefresh(){
@@ -185,5 +200,5 @@
       ws.onerror = () => { try { if (onWSStateCb) onWSStateCb(false); ws && ws.close(); } catch {} };
     } catch {}
   }
-  window.api = { battery, geoloc, geolocForSend, geolocTryFast, geolocBackgroundRefresh, list, send, connectWS, onPush, sendRead, uploadUrl, getUrl, status, onWSState, wsState };
+  window.api = { battery, batteryForSend, geoloc, geolocForSend, geolocTryFast, geolocBackgroundRefresh, list, send, connectWS, onPush, sendRead, uploadUrl, getUrl, status, onWSState, wsState, geolocSaveCache: geolocSaveCache, saveBatteryCache };
 })(); 

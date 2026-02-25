@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
   <title>HiHere</title>
-  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="manifest" id="manifestLink" href="manifest.webmanifest">
   <meta name="theme-color" content="#07c160">
   <link rel="icon" type="image/svg+xml" href="icons/paw.svg">
   <link rel="apple-touch-icon" href="icons/paw.svg">
@@ -58,41 +58,48 @@
     @keyframes hspin { to { transform: rotate(360deg);} }
     #imgViewer { position: fixed; inset: 0; background: rgba(0,0,0,.85); display: none; align-items: center; justify-content: center; z-index: 4; }
     #imgViewPic { max-width: 96vw; max-height: 92vh; border-radius: 8px; }
+    .sendspin { position: absolute; left: -18px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; border: 2px solid rgba(7,193,96,.25); border-top-color: #07c160; border-radius: 50%; animation: hspin .9s linear infinite; }
+    .sendfail { position: absolute; left: -18px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; border-radius: 50%; background: #ff4d4f; color: #fff; font-size: 12px; line-height: 16px; text-align: center; }
+    .bubble { max-width: calc(100vw - 28px); }
+    .bubble .msg { word-break: break-word; overflow-wrap: anywhere; }
+    .bubble.self.failed { background: #fff1f0; }
+    #recModal { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: none; align-items: center; justify-content: center; padding: 20px; z-index: 5; }
+    .rec-card { background: #fff; padding: 20px; border-radius: 12px; width: 100%; max-width: 440px; display: flex; flex-direction: column; gap: 16px; align-items: center; }
+    .rec-title { font-size: 18px; font-weight: 700; }
+    .rec-timer { font-size: 28px; font-weight: 700; color: #07c160; font-variant-numeric: tabular-nums; }
   </style>
 </head>
 <body>
   <header>
     <div class="header-inner">
       <div id="planet" style="flex:0 0 auto;">HiHere</div>
-      <div id="wsIndicator"><span id="wsDot"></span><span id="wsText">离线</span></div>
+      <div id="wsIndicator">
+        <span id="wsDot"></span>
+        <span id="wsText">经纬度获取中</span>
+        <span id="geoCount"></span>
+      </div>
       <button id="btnRefresh">刷新</button>
     </div>
   </header>
   <main id="list"><div id="sentinel"></div></main>
   <div class="actions">
-    <button id="btnPunch" class="btn">打卡</button>
-    <button id="btnMsg" class="btn secondary">消息</button>
     <script src="config.js"></script>
-    <div id="compose" style="display:none;"></div>
-    <div id="msgBar" class="row" style="width:100%; display:none;">
-      <button id="btnText" class="btn secondary">发送</button>
-      <button id="btnMore" class="btn outline">更多</button>
-      <button id="btnVoice" class="btn">说话</button>
-    </div>
-    <div id="textBox" class="row" style="width:100%; display:none;">
+    <div id="composerRow" class="row" style="width:100%;">
       <input id="text" type="text" placeholder="说点什么…" style="flex:1;" enterkeyhint="send" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false">
-      <button id="btnBack" class="btn outline" style="flex:0 0 auto; display:none;">返回</button>
-      <button id="btnSend" class="btn secondary" style="flex:0 0 auto; display:none;">发送</button>
+      <button id="btnSend" class="btn outline" style="flex:0 0 auto;">更多</button>
     </div>
     <input id="pickImage" type="file" accept="image/*" style="display:none;">
     <input id="pickCamera" type="file" accept="image/*" capture="environment" style="display:none;">
     <input id="pickFile" type="file" style="display:none;">
-    <div id="moreSheet" style="display:none; position:fixed; left:0; right:0; bottom:60px; background:#fff; box-shadow:0 -2px 10px rgba(0,0,0,.08); padding:12px;">
-      <div class="row">
-        <button id="moreImage" class="btn outline">图片</button>
-        <button id="moreFile" class="btn outline">文件</button>
-        <button id="moreCamera" class="btn outline">相机</button>
+    <div id="moreSheet" style="display:none; position:fixed; left:0; right:0; bottom:0; background:#fff; box-shadow:0 -2px 10px rgba(0,0,0,.08); padding:12px; z-index:6; min-height:180px;">
+      <div class="row" style="flex-wrap: wrap; gap: 8px;">
+        <button id="menuPunch" class="btn outline">打卡</button>
+        <button id="menuVoice" class="btn outline">录音</button>
+        <button id="menuImage" class="btn outline">图片</button>
+        <button id="menuCamera" class="btn outline">相机</button>
+        <button id="menuFile" class="btn outline">文件</button>
       </div>
+      <button id="btnMoreBack" class="btn secondary" style="position:absolute; right:12px; bottom:12px; width:auto; padding:10px 16px;">返回</button>
     </div>
   </div>
   <div id="modal" style="display:none;">
@@ -156,14 +163,66 @@
       </div>
     </div>
   </div>
+  <div id="recModal" style="display:none;">
+    <div class="rec-card">
+      <div class="rec-title">开始说话</div>
+      <div id="recTimer" class="rec-timer">00:00</div>
+      <button id="recDone" class="btn">录音完毕</button>
+    </div>
+  </div>
   <div id="imgViewer"><img id="imgViewPic" alt=""></div>
   <script src="js/store.js"></script>
   <script src="js/api.js"></script>
   <script>
-    if ('serviceWorker' in navigator) {
-      try { navigator.serviceWorker.register('/sw.js'); } catch {}
-    }
+    (function(){
+      // Generate PNG icons locally from SVG using canvas, then override manifest with data URLs and adjust start_url/scope
+      async function genIconsAndManifest(){
+        try{
+          const svgResp = await fetch('icons/paw.svg', { cache: 'no-store' });
+          const svgTxt = await svgResp.text();
+          const svgBlob = new Blob([svgTxt], { type: 'image/svg+xml' });
+          const svgUrl = URL.createObjectURL(svgBlob);
+          const img = new Image();
+          await new Promise((res, rej)=>{ img.onload=res; img.onerror=rej; img.src=svgUrl; });
+          const makePng = (size)=> {
+            const c=document.createElement('canvas'); c.width=size; c.height=size;
+            const ctx=c.getContext('2d'); ctx.clearRect(0,0,size,size);
+            const scale=Math.min(size/img.width, size/img.height);
+            const w=img.width*scale, h=img.height*scale;
+            const x=(size-w)/2, y=(size-h)/2;
+            ctx.drawImage(img, x, y, w, h);
+            return c.toDataURL('image/png');
+          };
+          const png192 = makePng(192);
+          const png512 = makePng(512);
+          // Update favicon/apple-touch-icon links
+          const head=document.getElementsByTagName('head')[0];
+          const linkIcon=document.querySelector('link[rel="icon"]') || (function(){ const l=document.createElement('link'); l.rel='icon'; head.appendChild(l); return l; })();
+          linkIcon.href = png192; linkIcon.type='image/png'; linkIcon.sizes='192x192';
+          const linkApple=document.querySelector('link[rel="apple-touch-icon"]') || (function(){ const l=document.createElement('link'); l.rel='apple-touch-icon'; head.appendChild(l); return l; })();
+          linkApple.href = png192; linkApple.sizes='180x180';
+          // Load base manifest and override icons / paths
+          const baseResp = await fetch('manifest.webmanifest', { cache: 'no-store' });
+          const base = await baseResp.json();
+          base.start_url = './';
+          base.scope = './';
+          base.icons = [
+            { src: png192, sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
+            { src: png512, sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+            { src: 'icons/paw.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' }
+          ];
+          const blob = new Blob([JSON.stringify(base)], { type: 'application/manifest+json' });
+          const url = URL.createObjectURL(blob);
+          const l = document.getElementById('manifestLink'); if (l) l.href = url;
+        } catch {}
+      }
+      genIconsAndManifest();
+      if ('serviceWorker' in navigator) {
+        try { navigator.serviceWorker.register('./sw.js'); } catch {}
+      }
+    })();
   </script>
+  <script src="js/vendor/NoSleep.min.js"></script>
   <script src="js/ui.js"></script>
 </body>
 </html>

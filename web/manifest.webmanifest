@@ -1,7 +1,8 @@
 {
   "name": "HiHere",
   "short_name": "HiHere",
-  "start_url": "/",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#07c160",
