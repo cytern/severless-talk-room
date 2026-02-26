@@ -128,6 +128,20 @@
     const res = await fetch(API_BASE + '/api/messages/status', { method: 'POST', headers, body });
     return res.json();
   }
+  async function appendFileIndex(key, ts){
+    try{
+      const headers = { 'Content-Type': 'application/json', 'hitoken': encodeURIComponent(window.store.here_name || '') };
+      const body = JSON.stringify({ key, ts });
+      await fetch(API_BASE + '/api/files/append', { method: 'POST', headers, body });
+    } catch {}
+  }
+  async function fileRemark(key, remark){
+    try{
+      const headers = { 'Content-Type': 'application/json', 'hitoken': encodeURIComponent(window.store.here_name || '') };
+      const body = JSON.stringify({ key, remark });
+      await fetch(API_BASE + '/api/files/remark', { method: 'POST', headers, body });
+    } catch {}
+  }
   // WebSocket
   let ws = null, recvCount = 0, regTimer = null;
   let onPushCb = null;
@@ -152,6 +166,10 @@
     const payload = { action: 'read', here_name: window.store.here_name || '', heart_time, here_nick_name: window.store.nick || '' };
     wsSend(payload);
   }
+  function heartbeat(){
+    const payload = { action: 'register', here_name: window.store.here_name || '', here_nick_name: window.store.nick || '' };
+    wsSend(payload);
+  }
   function connectWS(){
     const url = wsBase();
     if(!url) return;
@@ -168,8 +186,7 @@
           const copy = pendingReads.splice(0);
           copy.forEach(p => { try { ws && ws.send(JSON.stringify(p)); } catch {} });
         }
-        if(regTimer) clearInterval(regTimer);
-        regTimer = setInterval(reg, 55000);
+        if(regTimer) { clearInterval(regTimer); regTimer=null; }
       };
       ws.onmessage = async (ev) => {
         try {
@@ -200,5 +217,5 @@
       ws.onerror = () => { try { if (onWSStateCb) onWSStateCb(false); ws && ws.close(); } catch {} };
     } catch {}
   }
-  window.api = { battery, batteryForSend, geoloc, geolocForSend, geolocTryFast, geolocBackgroundRefresh, list, send, connectWS, onPush, sendRead, uploadUrl, getUrl, status, onWSState, wsState, geolocSaveCache: geolocSaveCache, saveBatteryCache };
+  window.api = { battery, batteryForSend, geoloc, geolocForSend, geolocTryFast, geolocBackgroundRefresh, list, send, connectWS, onPush, sendRead, uploadUrl, getUrl, status, onWSState, wsState, heartbeat, appendFileIndex, fileRemark, geolocSaveCache: geolocSaveCache, saveBatteryCache };
 })(); 

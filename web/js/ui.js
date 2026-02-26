@@ -307,9 +307,27 @@
     const nick=document.createElement('div'); nick.className='nick'; nick.textContent=m.here_nick_name||'';
     second.append(av, nick);
     const msg=document.createElement('div'); msg.className='msg';
+    if (m.reply_to) {
+      let qText = '';
+      let qNick = '';
+      if (m.reply_preview_msg) { qText = m.reply_preview_msg; qNick = m.reply_preview_nick || ''; }
+      else {
+        const here = window.store.here_name || '';
+        const tgt = (window.store.messages||[]).find(x => x.here_name===here && x.heart_time===m.reply_to);
+        if (tgt) { qText = (tgt.kind||tgt.file)? ((tgt.kind|| (tgt.file?'file':'text'))==='text' ? (tgt.msg||'') : (tgt.kind==='image'?'【图片】':(tgt.kind==='audio'?'【音频】':(tgt.file?'【文件】':'')))) : (tgt.msg||''); qNick = tgt.here_nick_name||''; }
+      }
+      if (qText) {
+        const q = document.createElement('div'); q.className='reply-quote';
+        const qn = document.createElement('span'); qn.className='q-nick'; qn.textContent = qNick ? (qNick+':') : '';
+        const qt = document.createElement('span'); qt.textContent = qText;
+        q.append(qn, qt);
+        q.onclick = (e)=>{ try{ e.preventDefault(); e.stopPropagation(); }catch{} jumpToRef(m.reply_to); };
+        msg.appendChild(q);
+      }
+    }
     const kind = m.kind || (m.file? 'file' : 'text');
     if (kind==='text') {
-      msg.textContent=m.msg||'';
+      const t=document.createElement('div'); t.textContent=m.msg||''; msg.appendChild(t);
     } else if (kind==='image' && m.file && m.file.key) {
       const ht = m.heart_time || 0;
       if (expandedImgs.has(ht)) {
@@ -375,7 +393,7 @@
       const btn=document.createElement('button'); btn.className='btn outline'; btn.textContent='【文件】(上传中…)';
       msg.appendChild(btn);
     } else {
-      msg.textContent=m.msg||'';
+      const t=document.createElement('div'); t.textContent=m.msg||''; msg.appendChild(t);
     }
     let cdRow = null;
     if (m.countdown_ts != null) {
@@ -422,9 +440,98 @@
       }
     }
     wrap.appendChild(msg);
+    if (!isSelf) {
+      const rp=document.createElement('div'); rp.className='reply-plus'; rp.textContent='+'; rp.title='回复';
+      rp.onclick=(e)=>{ try{ e.preventDefault(); e.stopPropagation(); }catch{} openReplyEditor(m.heart_time); };
+      wrap.appendChild(rp);
+    }
     if (cdRow) wrap.appendChild(cdRow);
     wrap.appendChild(loc);
     return wrap;
+  }
+  let replyEditorNode = null, replyTargetHt = 0;
+  function previewOf(m){
+    const k = m.kind || (m.file?'file':'text');
+    if (k==='text') return m.msg||'';
+    if (k==='image') return '【图片】';
+    if (k==='audio') return '【音频】';
+    if (m.file) return '【文件】';
+    return m.msg||'';
+  }
+  function openReplyEditor(ht){
+    closeReplyEditor();
+    const node = document.querySelector(`.bubble[data-ht="${ht}"]`);
+    if (!node) return;
+    const row = document.createElement('div'); row.className='reply-editor';
+    const inp = document.createElement('input'); inp.type='text'; inp.placeholder='回复内容';
+    const ok = document.createElement('button'); ok.className='btn secondary'; ok.textContent='完成';
+    ok.onclick=()=>{ const t=inp.value.trim(); if(t) sendReplyTo(ht, t); closeReplyEditor(); };
+    inp.onkeydown=(e)=>{ if(e.key==='Enter'){ const t=inp.value.trim(); if(t){ sendReplyTo(ht,t); closeReplyEditor(); } } };
+    row.append(inp, ok);
+    node.appendChild(row);
+    replyEditorNode = row; replyTargetHt = ht;
+    try { inp.focus(); } catch {}
+  }
+  function closeReplyEditor(){ if(replyEditorNode){ replyEditorNode.remove(); } replyEditorNode=null; replyTargetHt=0; }
+  async function sendReplyTo(ht, text){
+    const here = window.store.here_name || '';
+    const tgt = (window.store.messages||[]).find(x => x.here_name===here && x.heart_time===ht);
+    const now = Date.now();
+    const batt0 = window.api.batteryForSend ? window.api.batteryForSend() : null;
+    const geo0 = window.api.geolocTryFast ? window.api.geolocTryFast() : null;
+    const previewMsg = tgt ? previewOf(tgt) : '';
+    const previewNick = tgt ? (tgt.here_nick_name||'') : '';
+    window.store.upsertMessage({
+      here_name: window.store.here_name, heart_time: now,
+      here_nick_name: window.store.nick, battery: batt0, lat: geo0?.lat ?? null, lng: geo0?.lng ?? null, msg: text, message: text, kind: 'text', _status: 'pending',
+      reply_to: ht, reply_preview_msg: previewMsg, reply_preview_nick: previewNick
+    });
+    render();
+    try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch {}
+    try{
+      const res = await window.api.send({ nick: window.store.nick, here_nick_name: window.store.nick, battery: batt0, lat: geo0?.lat, lng: geo0?.lng, message: text, msg: text, kind: 'text', reply_to: ht });
+      const serverTs = Number(res?.ts) || now;
+      window.store.updateByTime(now, { battery: batt0, lat: geo0?.lat, lng: geo0?.lng, heart_time: serverTs, _status: 'sent', reply_to: ht, reply_preview_msg: previewMsg, reply_preview_nick: previewNick });
+      render();
+    } catch {
+      window.store.updateByTime(now, { _status: 'failed' }); render();
+    }
+  }
+  function highlightAndScroll(el){
+    try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch { window.scrollTo(0, Math.max(0, el.offsetTop-80)); }
+    el.classList.add('jump-highlight');
+    setTimeout(()=>{ try{ el.classList.remove('jump-highlight'); } catch {} }, 1600);
+  }
+  async function jumpToRef(ht){
+    const target = Number(ht||0); if (!target) return;
+    const present = document.querySelector(`.bubble[data-ht="${target}"]`);
+    if (present) { highlightAndScroll(present); return; }
+    const arr = (window.store.messages||[]);
+    const min = arr.length ? (arr[arr.length-1]?.heart_time||0) : Infinity;
+    if (target >= min) {
+      render();
+      const el = document.querySelector(`.bubble[data-ht="${target}"]`);
+      if (el) { highlightAndScroll(el); }
+      return;
+    }
+    const go = window.confirm('目标消息较早，需要加载较多历史，是否跳转？');
+    if (!go) return;
+    while (true){
+      if (typeof noMore!=='undefined' && noMore) break;
+      await loadMore();
+      const el2 = document.querySelector(`.bubble[data-ht="${target}"]`);
+      if (el2) { highlightAndScroll(el2); return; }
+      const arr2 = (window.store.messages||[]);
+      const min2 = arr2.length ? (arr2[arr2.length-1]?.heart_time||0) : Infinity;
+      if (target >= min2) {
+        render();
+        const el3 = document.querySelector(`.bubble[data-ht="${target}"]`);
+        if (el3) { highlightAndScroll(el3); }
+        return;
+      }
+      if (typeof nextKey!=='undefined' && !nextKey) break;
+    }
+    alert('未找到这条历史消息');
   }
   function render(){
     while(listEl.firstChild) listEl.removeChild(listEl.firstChild);
@@ -513,7 +620,7 @@
   }
   async function startGeoBatteryCycle(){
     if (geoCycleTimer) { try { clearTimeout(geoCycleTimer); } catch {} geoCycleTimer=null; }
-    setAppStatus('经纬度获取中', '#faad14', 0);
+    setAppStatus('同步数据中', '#faad14', 0);
     try {
       const p = window.api.battery && window.api.battery();
       if (p && typeof p.then==='function') {
@@ -527,10 +634,11 @@
     try { g = await (window.api.geoloc && window.api.geoloc()); } catch {}
     if (g && g.lat!=null && g.lng!=null) {
       try { if (window.api.geolocSaveCache) window.api.geolocSaveCache(g); } catch {}
-      setAppStatus('定位成功', '#52c41a', 5*60*1000);
+      setAppStatus('同步完成', '#52c41a', 5*60*1000);
+      try { if (window.api.heartbeat) window.api.heartbeat(); } catch {}
       geoCycleTimer = setTimeout(()=>{ startGeoBatteryCycle(); }, 5*60*1000);
     } else {
-      setAppStatus('经纬度获取中', '#faad14', 0);
+      setAppStatus('同步数据中', '#faad14', 0);
       geoCycleTimer = setTimeout(()=>{ startGeoBatteryCycle(); }, 20000);
     }
   }
@@ -645,6 +753,23 @@
       planet.textContent=window.store.here_name;
     }
   }
+  let moreGuardTs = 0;
+  function openMore(){
+    const now = Date.now();
+    if (now - moreGuardTs < 350) return;
+    moreGuardTs = now;
+    if (composerRow) composerRow.style.display='none';
+    if (moreSheet) moreSheet.style.display='block';
+    const backA = document.getElementById('menuBack') || document.getElementById('btnMoreBack');
+    if (backA) { backA.disabled = true; setTimeout(()=>{ backA.disabled = false; }, 380); }
+  }
+  function closeMore(){
+    const now = Date.now();
+    if (now - moreGuardTs < 350) return;
+    moreGuardTs = now;
+    if (moreSheet) moreSheet.style.display='none';
+    if (composerRow) composerRow.style.display='flex';
+  }
   function hideMsgBar(){ if (moreSheet) moreSheet.style.display='none'; if (composerRow) composerRow.style.display='flex'; }
   function syncComposerButton(){
     if (!text || !btnSend) return;
@@ -652,7 +777,12 @@
     if (has) { btnSend.textContent='发送'; btnSend.className='btn secondary'; }
     else { btnSend.textContent='更多'; btnSend.className='btn outline'; }
   }
-  text && (text.oninput = ()=>{ syncComposerButton(); });
+  if (text) {
+    const syncNow = ()=>{ try { syncComposerButton(); } catch {} };
+    text.addEventListener('input', syncNow);
+    text.addEventListener('keyup', syncNow);
+    text.addEventListener('change', syncNow);
+  }
   if (text) {
     text.addEventListener('keydown', (e)=>{
       if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && !e.isComposing) {
@@ -662,6 +792,9 @@
           btnSend && btnSend.click();
         }
       }
+    });
+    text.addEventListener('focus', ()=>{
+      setTimeout(()=>{ try { text.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch {} }, 250);
     });
   }
   async function punch(){
@@ -910,6 +1043,7 @@
       const res = await window.api.send({ nick: window.store.nick, here_nick_name: window.store.nick, battery: batt, lat: geoFast?.lat, lng: geoFast?.lng, message: '', kind: 'audio', file: { key, content_type: blob.type, size: blob.size, duration_ms: Date.now()-recStart } });
       const serverTs = Number(res?.ts) || now;
       window.store.updateByTime(now, { heart_time: serverTs, _status: 'sent', file: { key, local_url: localUrl, content_type: blob.type, size: blob.size, duration_ms: Date.now()-recStart } });
+      try { if (window.api.appendFileIndex) window.api.appendFileIndex(key, serverTs); } catch {}
       render();
     } catch {
       window.store.updateByTime(now, { _status: 'failed' });
@@ -954,6 +1088,7 @@
         const res = await window.api.send({ nick: window.store.nick, here_nick_name: window.store.nick, battery: batt, lat: geo?.lat, lng: geo?.lng, message: '', kind: m.kind||'file', file: { key: up.key, content_type: ct, size: blob.size, duration_ms: m.file.duration_ms } });
         const serverTs = Number(res?.ts) || ht;
         window.store.updateByTime(ht, { heart_time: serverTs, _status: 'sent', file: { ...m.file, key: up.key, content_type: ct, size: blob.size } });
+        try { if (window.api.appendFileIndex) window.api.appendFileIndex(up.key, serverTs); } catch {}
         render();
         return;
       }
@@ -964,7 +1099,7 @@
   }
   async function onPickFile(file, kind){
     const ct = file.type || 'application/octet-stream';
-    const ext = (file.name && file.name.includes('.')) ? file.name.substring(file.lastIndexOf('.')) : '';
+    const ext = (file.name && file.name.includes('.')) ? file.name.substring(file.name.lastIndexOf('.')) : '';
     const now = Date.now();
     const batt = window.api.batteryForSend ? window.api.batteryForSend() : null;
     const geoFast = window.api.geolocTryFast ? window.api.geolocTryFast() : null;
@@ -980,6 +1115,7 @@
       const res = await window.api.send({ nick: window.store.nick, here_nick_name: window.store.nick, battery: batt, lat: geoFast?.lat, lng: geoFast?.lng, message: '', kind, file: { key, content_type: ct, size: file.size } });
       const serverTs = Number(res?.ts) || now;
       window.store.updateByTime(now, { heart_time: serverTs, _status: 'sent', file: { key, local_url: localUrl, content_type: ct, size: file.size } });
+      try { if (window.api.appendFileIndex) window.api.appendFileIndex(key, serverTs); } catch {}
       render();
     } catch {
       window.store.updateByTime(now, { _status: 'failed' });
@@ -989,27 +1125,32 @@
   function wireComposer(){
     syncComposerButton();
     if (btnSend) {
-      btnSend.onclick = ()=>{
+      const handle = (ev)=>{
+        try { ev.preventDefault && ev.preventDefault(); ev.stopPropagation && ev.stopPropagation(); } catch {}
         const v = (text && text.value.trim()) || '';
         if (v) { sendText(); }
-        else {
-          if (composerRow) composerRow.style.display='none';
-          if (moreSheet) moreSheet.style.display='block';
-        }
+        else { openMore(); }
       };
+      try { btnSend.removeEventListener('click', handle); } catch {}
+      btnSend.addEventListener('pointerdown', handle, { passive: false });
+      btnSend.addEventListener('click', handle, { passive: false });
     }
     const btnMoreBack = document.getElementById('btnMoreBack');
+    const menuBack = document.getElementById('menuBack');
     const menuPunch = document.getElementById('menuPunch');
     const menuVoice = document.getElementById('menuVoice');
     const menuImage = document.getElementById('menuImage');
     const menuCamera = document.getElementById('menuCamera');
     const menuFile = document.getElementById('menuFile');
-    if (btnMoreBack) btnMoreBack.onclick = ()=>{ if (moreSheet) moreSheet.style.display='none'; if (composerRow) composerRow.style.display='flex'; };
+    const menuFileMgr = document.getElementById('menuFileMgr');
+    if (btnMoreBack) btnMoreBack.onclick = ()=>{ closeMore(); };
+    if (menuBack) menuBack.onclick = ()=>{ closeMore(); };
     if (menuPunch) menuPunch.onclick = ()=>{ if (moreSheet) moreSheet.style.display='none'; if (composerRow) composerRow.style.display='flex'; punch(); };
     if (menuVoice) menuVoice.onclick = ()=>{ if (moreSheet) moreSheet.style.display='none'; if (composerRow) composerRow.style.display='flex'; openRecModal(); };
     if (menuImage) menuImage.onclick = ()=>{ if (pickImage) pickImage.click(); };
     if (menuCamera) menuCamera.onclick = ()=>{ if (pickCamera) pickCamera.click(); };
     if (menuFile) menuFile.onclick = ()=>{ if (pickFile) pickFile.click(); };
+    if (menuFileMgr) menuFileMgr.onclick = ()=>{ window.location.href = 'files.html'; };
     pickImage.onchange = async (e)=>{ const f=e.target.files&&e.target.files[0]; if(f) await onPickFile(f, 'image'); e.target.value=''; };
     pickCamera.onchange = async (e)=>{ const f=e.target.files&&e.target.files[0]; if(f) await onPickFile(f, 'image'); e.target.value=''; };
     pickFile.onchange = async (e)=>{ const f=e.target.files&&e.target.files[0]; if(f) await onPickFile(f, 'file'); e.target.value=''; };
