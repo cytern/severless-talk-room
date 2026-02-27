@@ -316,14 +316,12 @@
         const tgt = (window.store.messages||[]).find(x => x.here_name===here && x.heart_time===m.reply_to);
         if (tgt) { qText = (tgt.kind||tgt.file)? ((tgt.kind|| (tgt.file?'file':'text'))==='text' ? (tgt.msg||'') : (tgt.kind==='image'?'【图片】':(tgt.kind==='audio'?'【音频】':(tgt.file?'【文件】':'')))) : (tgt.msg||''); qNick = tgt.here_nick_name||''; }
       }
-      if (qText) {
-        const q = document.createElement('div'); q.className='reply-quote';
+      const q = document.createElement('div'); q.className='reply-quote';
         const qn = document.createElement('span'); qn.className='q-nick'; qn.textContent = qNick ? (qNick+':') : '';
-        const qt = document.createElement('span'); qt.textContent = qText;
-        q.append(qn, qt);
-        q.onclick = (e)=>{ try{ e.preventDefault(); e.stopPropagation(); }catch{} jumpToRef(m.reply_to); };
-        msg.appendChild(q);
-      }
+        const qt = document.createElement('span'); qt.textContent = qText || '【引用】';
+      q.append(qn, qt);
+      q.onclick = (e)=>{ try{ e.preventDefault(); e.stopPropagation(); }catch{} jumpToRef(m.reply_to); };
+      msg.appendChild(q);
     }
     const kind = m.kind || (m.file? 'file' : 'text');
     if (kind==='text') {
@@ -347,7 +345,9 @@
         msg.appendChild(btn);
       }
     } else if (kind==='audio' && m.file && m.file.key) {
-      const btn=document.createElement('button'); btn.className='btn outline'; btn.textContent=(m._status==='pending' && !m.file.key)?'【音频】(上传中…)':'【音频】';
+      const dur = Number(m?.file?.duration_ms)||0;
+      const durTxt = dur?(' '+fmtTimer(dur)):''; 
+      const btn=document.createElement('button'); btn.className='btn outline'; btn.textContent=(m._status==='pending' && !m.file.key)?'【音频】(上传中…)':('【音频】'+durTxt);
       const show = async ()=>{
         const ht = m.heart_time || 0;
         let url = m.file.local_url;
@@ -366,7 +366,9 @@
       btn.onclick = show;
       msg.appendChild(btn);
     } else if (kind==='audio' && m.file && m.file.local_url && !m.file.key){
-      const btn=document.createElement('button'); btn.className='btn outline'; btn.textContent='【音频】(上传中…)';
+      const dur = Number(m?.file?.duration_ms)||0;
+      const durTxt = dur?(' '+fmtTimer(dur)):''; 
+      const btn=document.createElement('button'); btn.className='btn outline'; btn.textContent='【音频】(上传中…)'+durTxt;
       const show = ()=> {
         const player = document.createElement('audio'); player.controls = true; player.src = m.file.local_url; player.style.width='72vw';
         const collapse = document.createElement('button'); collapse.className='btn outline'; collapse.textContent='收起';
@@ -653,19 +655,21 @@
       const minePending = (window.store.messages||[]).find(x => x._status==='pending' && x.here_nick_name===me && (x.msg||'')===(item.msg||'') && (x.kind||'text')===(item.kind||'text'));
       if (minePending) {
         const oldTs = minePending.heart_time;
-        window.store.updateByTime(oldTs, { heart_time: item.heart_time, _status: 'sent', readers: item.readers, read_count: item.read_count, file: item.file, battery: item.battery, lat: item.lat, lng: item.lng });
+        const msgv = (item.msg!=null) ? item.msg : (item.message||'');
+        window.store.updateByTime(oldTs, { heart_time: item.heart_time, _status: 'sent', msg: msgv, kind: item.kind, reply_to: item.reply_to, reply_preview_msg: item.reply_preview_msg, reply_preview_nick: item.reply_preview_nick, readers: item.readers, read_count: item.read_count, file: item.file, battery: item.battery, lat: item.lat, lng: item.lng });
         const oldNode = document.querySelector(`.bubble[data-ht="${oldTs}"]`);
-        if (oldNode) oldNode.replaceWith(bubble({ ...minePending, ...item }));
+        if (oldNode) oldNode.replaceWith(bubble({ ...minePending, ...item, msg: msgv }));
         return;
       }
     }
     const prev = (window.store.messages||[]).find(x => x.here_name===here && x.heart_time===item.heart_time);
-    const changed = !prev || prev.msg!==item.msg || prev.read_count!==item.read_count || JSON.stringify(prev.readers||[])!==JSON.stringify(item.readers||[]) || (prev.file?.key)!==(item.file?.key) || prev.battery!==item.battery || prev.lat!==item.lat || prev.lng!==item.lng;
+    const msgv = (item.msg!=null) ? item.msg : (item.message||'');
+    const changed = !prev || prev.msg!==msgv || prev.read_count!==item.read_count || JSON.stringify(prev.readers||[])!==JSON.stringify(item.readers||[]) || (prev.file?.key)!==(item.file?.key) || prev.battery!==item.battery || prev.lat!==item.lat || prev.lng!==item.lng || prev.reply_to!==item.reply_to;
     if (!changed) return;
-    window.store.updateByTime(item.heart_time, { here_name: here, here_nick_name: item.here_nick_name, msg: item.msg, kind: item.kind, readers: item.readers, read_count: item.read_count, file: item.file, battery: item.battery, lat: item.lat, lng: item.lng, _status: 'sent' });
+    window.store.updateByTime(item.heart_time, { here_name: here, here_nick_name: item.here_nick_name, msg: msgv, kind: item.kind, reply_to: item.reply_to, reply_preview_msg: item.reply_preview_msg, reply_preview_nick: item.reply_preview_nick, readers: item.readers, read_count: item.read_count, file: item.file, battery: item.battery, lat: item.lat, lng: item.lng, _status: 'sent' });
     const node = document.querySelector(`.bubble[data-ht="${item.heart_time}"]`);
     if (node) {
-      node.replaceWith(bubble({ ...(prev||{}), ...item }));
+      node.replaceWith(bubble({ ...(prev||{}), ...item, msg: msgv }));
     } else {
       render();
     }
@@ -1104,7 +1108,23 @@
     const batt = window.api.batteryForSend ? window.api.batteryForSend() : null;
     const geoFast = window.api.geolocTryFast ? window.api.geolocTryFast() : null;
     const localUrl = (kind==='image' || kind==='audio') ? URL.createObjectURL(file) : null;
-    window.store.upsertMessage({ here_name: window.store.here_name, heart_time: now, here_nick_name: window.store.nick, battery: batt, lat: geoFast?.lat, lng: geoFast?.lng, msg: '', kind, file: { key: null, local_url: localUrl, content_type: ct, size: file.size }, _status: 'pending' });
+    let thumbDataUrl = null;
+    if (kind==='image' && localUrl) {
+      try {
+        const img = await new Promise((res, rej)=>{
+          const im = new Image();
+          im.onload=()=>res(im); im.onerror=rej; im.src = localUrl;
+        });
+        const canvas = document.createElement('canvas');
+        const maxW = 240; const scale = Math.min(1, maxW / img.width);
+        canvas.width = Math.max(1, Math.round(img.width * scale));
+        canvas.height = Math.max(1, Math.round(img.height * scale));
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        thumbDataUrl = canvas.toDataURL('image/jpeg', 0.7);
+      } catch {}
+    }
+    window.store.upsertMessage({ here_name: window.store.here_name, heart_time: now, here_nick_name: window.store.nick, battery: batt, lat: geoFast?.lat, lng: geoFast?.lng, msg: '', kind, file: { key: null, local_url: localUrl, content_type: ct, size: file.size, thumb_data_url: thumbDataUrl }, _status: 'pending' });
     render();
     try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch {}
     try{
@@ -1114,7 +1134,8 @@
       await fetch(url, { method: 'PUT', headers: { 'Content-Type': ct }, body: file });
       const res = await window.api.send({ nick: window.store.nick, here_nick_name: window.store.nick, battery: batt, lat: geoFast?.lat, lng: geoFast?.lng, message: '', kind, file: { key, content_type: ct, size: file.size } });
       const serverTs = Number(res?.ts) || now;
-      window.store.updateByTime(now, { heart_time: serverTs, _status: 'sent', file: { key, local_url: localUrl, content_type: ct, size: file.size } });
+      window.store.updateByTime(now, { heart_time: serverTs, _status: 'sent', file: { key, local_url: localUrl, content_type: ct, size: file.size, thumb_data_url: thumbDataUrl } });
+      try { if (key && thumbDataUrl) localStorage.setItem('thumb_'+key, thumbDataUrl); } catch {}
       try { if (window.api.appendFileIndex) window.api.appendFileIndex(key, serverTs); } catch {}
       render();
     } catch {
@@ -1158,6 +1179,9 @@
   const io = new IntersectionObserver(es=>{ if(es[0].isIntersecting && !noMore){ loadMore(); } },{rootMargin:'200px'});
   io.observe(sentinel);
   if (btnSend) { btnSend.onclick = ()=>{ const v=(text&&text.value.trim())||''; if(v) sendText(); else { if (composerRow) composerRow.style.display='none'; if (moreSheet) moreSheet.style.display='block'; } }; }
-  btnRefresh.onclick=()=>onRefreshClick();
-  (async () => { await ensureProfile(); window.store.loadCache(); render(); await reconcileReadStatus(); await refreshLatest(); startGeoBatteryCycle(); updateWsIndicator(); window.api.connectWS(); wirePunchUI(); wireComposer(); })();
+  if (btnRefresh) {
+    btnRefresh.onclick=()=>onRefreshClick();
+    try { btnRefresh.addEventListener('pointerdown', (e)=>{ try{ e.preventDefault(); }catch{} onRefreshClick(); }, { passive: false }); } catch {}
+  }
+  (async () => { await ensureProfile(); window.store.loadCache(); render(); await reconcileReadStatus(); await refreshLatest(); startGeoBatteryCycle(); updateWsIndicator(); window.api.connectWS(); wirePunchUI(); wireComposer(); setTimeout(()=>{ try{ refreshLatest(); }catch{} }, 800); })();
 })(); 

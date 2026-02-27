@@ -58,6 +58,14 @@
                  : (m.kind==='audio' || (m.file?.content_type||'').startsWith('audio')) ? '录音'
                  : '文件';
       const btn = document.createElement('button'); btn.className='btn btn-green'; btn.textContent = `【${type}】`;
+      if (type==='录音') {
+        const dur = Number(m?.file?.duration_ms)||0;
+        if (dur>0) {
+          const mm = String(Math.floor(dur/60000)).padStart(2,'0');
+          const ss = String(Math.floor((dur%60000)/1000)).padStart(2,'0');
+          btn.textContent = `【录音】 ${mm}:${ss}`;
+        }
+      }
       btn.onclick = async ()=>{
         let url = m.file?.local_url || '';
         if (!url && m.file?.key) url = mediaUrlForKey(m.file.key);
@@ -104,7 +112,22 @@
       meta.append(title, noteText, noteEdit);
       const plus = document.createElement('button'); plus.className='btn'; plus.textContent='+'; plus.title='备注';
       plus.onclick = ()=>{ input.value = notes[m.file?.key||''] || ''; noteEdit.style.display = 'flex'; input.focus(); };
-      item.append(btn, meta, dl, plus);
+      if (type==='图片') {
+        const thumb = document.createElement('img');
+        const key = m.file?.key||'';
+        const thumbStored = (key && localStorage.getItem('thumb_'+key)) || '';
+        const src = m.file?.thumb_data_url || thumbStored || '';
+        if (src) {
+          thumb.src = src;
+          thumb.className='thumb';
+          item.classList.add('image');
+          item.append(thumb, meta, dl, plus);
+        } else {
+          item.append(btn, meta, dl, plus);
+        }
+      } else {
+        item.append(btn, meta, dl, plus);
+      }
       listEl.appendChild(item);
     }
   }

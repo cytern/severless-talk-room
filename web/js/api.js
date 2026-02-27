@@ -100,7 +100,8 @@
   }
   async function list(next) {
     const headers = { 'hitoken': encodeURIComponent(window.store.here_name || '') };
-    const q = next ? ('?lastKey=' + encodeURIComponent(next)) : '';
+    const ts = Date.now();
+    const q = next ? ('?lastKey=' + encodeURIComponent(next) + '&t=' + ts) : ('?t=' + ts);
     const res = await fetch(API_BASE + '/api/messages' + q, { headers, cache: 'no-store' });
     return res.json();
   }
