@@ -120,6 +120,10 @@
         if (src) {
           thumb.src = src;
           thumb.className='thumb';
+          let origin = m.file?.local_url || '';
+          if (!origin && m.file?.key) origin = mediaUrlForKey(m.file.key);
+          thumb.style.cursor = origin ? 'zoom-in' : 'default';
+          if (origin) thumb.onclick = ()=> openImageViewer(origin);
           item.classList.add('image');
           item.append(thumb, meta, dl, plus);
         } else {
