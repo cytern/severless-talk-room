@@ -203,6 +203,8 @@
           };
           const png192 = makePng(192);
           const png512 = makePng(512);
+          try { URL.revokeObjectURL(svgUrl); } catch {}
+          try { img.src=''; } catch {}
           // Update favicon/apple-touch-icon links
           const head=document.getElementsByTagName('head')[0];
           const linkIcon=document.querySelector('link[rel="icon"]') || (function(){ const l=document.createElement('link'); l.rel='icon'; head.appendChild(l); return l; })();

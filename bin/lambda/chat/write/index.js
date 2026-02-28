@@ -12,6 +12,11 @@ exports.handler = async (event) => {
     }
     const body = JSON.parse(event.body || '{}');
     const now = Date.now();
+  const replyToRaw = (body.reply_to != null) ? body.reply_to : (body.relay_to != null ? body.relay_to : undefined);
+  const replyToNum = Number(replyToRaw);
+  const hasReply = Number.isFinite(replyToNum) && replyToNum > 0;
+  const replyPreviewMsg = typeof body.reply_preview_msg === 'string' ? body.reply_preview_msg : undefined;
+  const replyPreviewNick = typeof body.reply_preview_nick === 'string' ? body.reply_preview_nick : undefined;
     const item = {
       here_name: hereName,
       heart_time: now,
@@ -26,6 +31,13 @@ exports.handler = async (event) => {
       readers: [],
       read_count: 0
     };
+  if (hasReply) {
+    item.reply_to = replyToNum;
+    // keep alias for legacy clients if they rely on relay_to
+    item.relay_to = replyToNum;
+    if (replyPreviewMsg !== undefined) item.reply_preview_msg = replyPreviewMsg;
+    if (replyPreviewNick !== undefined) item.reply_preview_nick = replyPreviewNick;
+  }
     await ddb.put({ TableName: TABLE_NAME, Item: item }).promise();
     if (WS_ENDPOINT) {
       await notifyWebsocket(hereName, item);

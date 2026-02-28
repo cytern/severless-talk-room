@@ -156,7 +156,7 @@
     } catch {}
   }
   // WebSocket
-  let ws = null, recvCount = 0, regTimer = null;
+  let ws = null, recvCount = 0, regTimer = null, pingTimer = null, wsWatchTimer = null, lastRecvTs = 0;
   let onPushCb = null;
   let onWSStateCb = null;
   const pendingReads = [];
@@ -190,6 +190,7 @@
       ws = new WebSocket(url);
       ws.onopen = () => {
         try { if (onWSStateCb) onWSStateCb(true); } catch {}
+        lastRecvTs = Date.now();
         const reg = () => {
           const payload = { action: 'register', here_name: window.store.here_name || '', here_nick_name: window.store.nick || '' };
           try { ws && ws.send(JSON.stringify(payload)); } catch {}
@@ -200,10 +201,23 @@
           copy.forEach(p => { try { ws && ws.send(JSON.stringify(p)); } catch {} });
         }
         if(regTimer) { clearInterval(regTimer); regTimer=null; }
+        // lightweight keepalive: ping every ~55s to keep intermediaries alive
+        if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
+        pingTimer = setInterval(()=>{ try { wsSend({ action: 'ping' }); } catch {} }, 55000);
+        // watchdog: if no message for > 3min, force reconnect
+        if (wsWatchTimer) { clearInterval(wsWatchTimer); wsWatchTimer=null; }
+        wsWatchTimer = setInterval(()=>{
+          try {
+            const st = wsState();
+            const idle = Date.now() - lastRecvTs;
+            if (st === 1 && idle > 180000) { try { ws.close(); } catch {} }
+          } catch {}
+        }, 60000);
       };
       ws.onmessage = async (ev) => {
         try {
           const data = JSON.parse(ev.data || '{}');
+          lastRecvTs = Date.now();
           if (data && data.type === 'message' && data.item) {
             const item = normalizeItem(data.item);
             window.store.mergeMessages([item]);
@@ -227,8 +241,9 @@
           }
         } catch {}
       };
-      ws.onclose = () => { try { if (onWSStateCb) onWSStateCb(false); } catch {} if(regTimer) { clearInterval(regTimer); regTimer=null; } setTimeout(connectWS, 3000); };
-      ws.onerror = () => { try { if (onWSStateCb) onWSStateCb(false); ws && ws.close(); } catch {} };
+      const cleanupTimers = ()=>{ if(pingTimer){ clearInterval(pingTimer); pingTimer=null; } if(wsWatchTimer){ clearInterval(wsWatchTimer); wsWatchTimer=null; } };
+      ws.onclose = () => { cleanupTimers(); try { if (onWSStateCb) onWSStateCb(false); } catch {} if(regTimer) { clearInterval(regTimer); regTimer=null; } setTimeout(connectWS, 3000); };
+      ws.onerror = () => { cleanupTimers(); try { if (onWSStateCb) onWSStateCb(false); ws && ws.close(); } catch {} };
     } catch {}
   }
   window.api = { battery, batteryForSend, geoloc, geolocForSend, geolocTryFast, geolocBackgroundRefresh, list, send, connectWS, onPush, sendRead, uploadUrl, getUrl, status, onWSState, wsState, heartbeat, appendFileIndex, fileRemark, geolocSaveCache: geolocSaveCache, saveBatteryCache };
