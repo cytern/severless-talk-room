@@ -491,7 +491,7 @@
     render();
     try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch {}
     try{
-      const res = await window.api.send({ nick: window.store.nick, here_nick_name: window.store.nick, battery: batt0, lat: geo0?.lat, lng: geo0?.lng, message: text, msg: text, kind: 'text', reply_to: ht });
+      const res = await window.api.send({ nick: window.store.nick, here_nick_name: window.store.nick, battery: batt0, lat: geo0?.lat, lng: geo0?.lng, message: text, msg: text, kind: 'text', reply_to: ht, relay_to: ht });
       const serverTs = Number(res?.ts) || now;
       window.store.updateByTime(now, { battery: batt0, lat: geo0?.lat, lng: geo0?.lng, heart_time: serverTs, _status: 'sent', reply_to: ht, reply_preview_msg: previewMsg, reply_preview_nick: previewNick });
       render();
@@ -689,7 +689,7 @@
   }
   async function refreshLatest(){
     nextKey=null; noMore=false;
-    const data = await window.api.list(null);
+    const data = await window.api.list(null, { reload: true });
     const items = data.items||[];
     window.store.mergeMessages(items);
     let replaced = 0;

@@ -98,16 +98,28 @@
       if (g && g.lat!=null && g.lng!=null) saveGeoCache(g);
     } catch {}
   }
-  async function list(next) {
-    const headers = { 'hitoken': encodeURIComponent(window.store.here_name || '') };
+  function normalizeItem(it){
+    try {
+      if (it && it.relay_to!=null && it.reply_to==null) it.reply_to = it.relay_to;
+    } catch {}
+    return it;
+  }
+  async function list(next, opts) {
+    const headers = { 'hitoken': encodeURIComponent(window.store.here_name || ''), 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' };
     const ts = Date.now();
     const q = next ? ('?lastKey=' + encodeURIComponent(next) + '&t=' + ts) : ('?t=' + ts);
-    const res = await fetch(API_BASE + '/api/messages' + q, { headers, cache: 'no-store' });
-    return res.json();
+    const fetchOpts = { headers, cache: (opts && opts.reload) ? 'reload' : 'no-store' };
+    const res = await fetch(API_BASE + '/api/messages' + q, fetchOpts);
+    const data = await res.json();
+    if (data && Array.isArray(data.items)) data.items = data.items.map(normalizeItem);
+    return data;
   }
   async function send(payload) {
     const headers = { 'Content-Type': 'application/json', 'hitoken': encodeURIComponent(window.store.here_name || '') };
-    const body = JSON.stringify(payload);
+    const p = { ...payload };
+    if (p.reply_to!=null && p.relay_to==null) p.relay_to = p.reply_to;
+    if (p.relay_to!=null && p.reply_to==null) p.reply_to = p.relay_to;
+    const body = JSON.stringify(p);
     const res = await fetch(API_BASE + '/api/message', { method: 'POST', headers, body });
     return res.json();
   }
@@ -193,18 +205,19 @@
         try {
           const data = JSON.parse(ev.data || '{}');
           if (data && data.type === 'message' && data.item) {
-            window.store.mergeMessages([data.item]);
-            const sender = (data.item.here_nick_name||'');
+            const item = normalizeItem(data.item);
+            window.store.mergeMessages([item]);
+            const sender = (item.here_nick_name||'');
             const me = (window.store.nick||'');
-            const readers = Array.isArray(data.item.readers) ? data.item.readers : [];
+            const readers = Array.isArray(item.readers) ? item.readers : [];
             const iHaveRead = readers.includes(me);
             if (sender !== me && !iHaveRead) {
-              sendRead(data.item.heart_time);
+              sendRead(item.heart_time);
             }
             recvCount++;
-            if (onPushCb) onPushCb(data.item);
+            if (onPushCb) onPushCb(item);
             if (recvCount % 5 === 0) {
-              const latest = await list(null);
+              const latest = await list(null, { reload: true });
               window.store.mergeMessages(latest.items || []);
               if (onPushCb) onPushCb(null);
             }
