@@ -12,6 +12,45 @@
     }
     return Math.floor(20 + Math.random() * 70);
   }
+  function netCacheKey(){ return 'net_cache_v1'; }
+  function saveNetCache(label){
+    try { localStorage.setItem(netCacheKey(), JSON.stringify({ v: String(label||''), ts: Date.now() })); } catch {}
+  }
+  function readNetCache(){
+    try { const t = localStorage.getItem(netCacheKey()); return t ? JSON.parse(t) : null; } catch { return null; }
+  }
+  function detectNetLabel(){
+    try {
+      const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+      const online = (navigator.onLine !== false);
+      if (!online) return '离线';
+      const eff = (conn && conn.effectiveType) ? String(conn.effectiveType).toLowerCase() : '';
+      const typ = (conn && conn.type) ? String(conn.type).toLowerCase() : '';
+      const ua = (navigator.userAgent||'').toLowerCase();
+      const isMobileUA = /android|iphone|ipad|ipod|mobile/.test(ua);
+      if (typ === 'wifi') return 'WiFi';
+      if (typ === 'ethernet') return '有线';
+      if (typ === 'cellular') {
+        if (eff === 'slow-2g' || eff === '2g') return '2G';
+        if (eff === '3g') return '3G';
+        if (eff === '5g') return '5G';
+        return '4G';
+      }
+      if (eff === 'slow-2g' || eff === '2g') return '2G';
+      if (eff === '3g') return '3G';
+      if (eff === '5g') return '5G';
+      if (eff === '4g') return isMobileUA ? '4G' : 'WiFi';
+      return isMobileUA ? '蜂窝' : 'WiFi';
+    } catch { return '未知'; }
+  }
+  function netForSend(){
+    const FIVE_MIN = 5*60*1000;
+    const c = readNetCache();
+    if (c && c.ts && (Date.now() - c.ts) < FIVE_MIN && c.v) return c.v;
+    const v = detectNetLabel();
+    saveNetCache(v);
+    return v;
+  }
   function batteryCacheKey(){ return 'battery_cache_v1'; }
   function saveBatteryCache(pct){
     try { localStorage.setItem(batteryCacheKey(), JSON.stringify({ v: Number(pct)||0, ts: Date.now() })); } catch {}
@@ -246,5 +285,5 @@
       ws.onerror = () => { cleanupTimers(); try { if (onWSStateCb) onWSStateCb(false); ws && ws.close(); } catch {} };
     } catch {}
   }
-  window.api = { battery, batteryForSend, geoloc, geolocForSend, geolocTryFast, geolocBackgroundRefresh, list, send, connectWS, onPush, sendRead, uploadUrl, getUrl, status, onWSState, wsState, heartbeat, appendFileIndex, fileRemark, geolocSaveCache: geolocSaveCache, saveBatteryCache };
+  window.api = { battery, batteryForSend, geoloc, geolocForSend, geolocTryFast, geolocBackgroundRefresh, list, send, connectWS, onPush, sendRead, uploadUrl, getUrl, status, onWSState, wsState, heartbeat, appendFileIndex, fileRemark, geolocSaveCache: geolocSaveCache, saveBatteryCache, netForSend, saveNetCache };
 })(); 

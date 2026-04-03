@@ -22,6 +22,7 @@ exports.handler = async (event) => {
       heart_time: now,
       here_nick_name: body.nick || '',
       battery: typeof body.battery === 'number' ? body.battery : null,
+    net: typeof body.net === 'string' ? body.net : (body.net!=null ? String(body.net) : null),
       lat: body.lat ?? null,
       lng: body.lng ?? null,
       msg: body.message || '',

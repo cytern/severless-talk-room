@@ -53,27 +53,46 @@
   const rainbow=['#ff4d4f','#fa8c16','#fadb14','#52c41a','#13c2c2','#1890ff','#722ed1'];
   function hashColor(nick){ let h=0; for(let i=0;i<(nick||'').length;i++){ h=((h<<5)-h)+nick.charCodeAt(i); h|=0; } const idx=((h%7)+7)%7; return rainbow[idx]; }
   const SVG_NS='http://www.w3.org/2000/svg';
-  function batteryIcon(p){
-    const pct=typeof p==='number'?Math.max(0,Math.min(100,p)):null;
+  function signalStrengthFromLabel(label){
+    const L = String(label||'').toLowerCase();
+    if (L.includes('离线') || L.includes('offline')) return 0;
+    if (L.includes('2g')) return 1;
+    if (L.includes('3g')) return 2;
+    if (L.includes('蜂窝')) return 3;
+    if (L.includes('4g')) return 3;
+    if (L.includes('5g')) return 4;
+    if (L.includes('wifi') || L.includes('有线')) return 4;
+    if (L.includes('未知')) return 2;
+    return 3;
+  }
+  function colorByStrength(s){
+    if (s <= 1) return '#f5222d';
+    if (s === 2) return '#fa8c16';
+    if (s === 3) return '#fadb14';
+    return '#52c41a';
+  }
+  function networkIcon(label){
+    const strength = signalStrengthFromLabel(label);
+    const color = colorByStrength(strength);
+    const grey = '#d9d9d9';
     const svg=document.createElementNS(SVG_NS,'svg');
-    svg.setAttribute('class','battery');
+    svg.setAttribute('class','net');
     svg.setAttribute('viewBox','0 0 24 16');
     svg.setAttribute('width','24');
     svg.setAttribute('height','16');
-    if(pct!==null){
-      const level=document.createElementNS(SVG_NS,'rect');
-      const w=Math.round(16*pct/100);
-      const color=pct>=60?'#52c41a':(pct>=30?'#faad14':'#f5222d');
-      level.setAttribute('x','2'); level.setAttribute('y','4'); level.setAttribute('width',String(w)); level.setAttribute('height','8'); level.setAttribute('fill',color);
-      svg.appendChild(level);
+    const isWifi = String(label||'').toLowerCase().includes('wifi');
+    if(isWifi){
+      const a1=document.createElementNS(SVG_NS,'path'); a1.setAttribute('d','M2,12 C6,8 18,8 22,12'); a1.setAttribute('stroke', strength>=3?color:grey); a1.setAttribute('fill','none'); a1.setAttribute('stroke-width','1.5');
+      const a2=document.createElementNS(SVG_NS,'path'); a2.setAttribute('d','M6,12 C9,10 15,10 18,12'); a2.setAttribute('stroke', strength>=2?color:grey); a2.setAttribute('fill','none'); a2.setAttribute('stroke-width','1.5');
+      const dot=document.createElementNS(SVG_NS,'circle'); dot.setAttribute('cx','12'); dot.setAttribute('cy','13'); dot.setAttribute('r','1.2'); dot.setAttribute('fill', strength>=1?color:grey);
+      svg.append(a1,a2,dot);
+      return svg;
     }
-    const body=document.createElementNS(SVG_NS,'rect');
-    body.setAttribute('x','1'); body.setAttribute('y','3'); body.setAttribute('width','18'); body.setAttribute('height','10'); body.setAttribute('rx','2');
-    body.setAttribute('fill','none'); body.setAttribute('stroke','#666'); body.setAttribute('stroke-width','1.5');
-    const tip=document.createElementNS(SVG_NS,'rect');
-    tip.setAttribute('x','19'); tip.setAttribute('y','7'); tip.setAttribute('width','3'); tip.setAttribute('height','2'); tip.setAttribute('fill','#666');
-    svg.appendChild(body);
-    svg.appendChild(tip);
+    const b1=document.createElementNS(SVG_NS,'rect'); b1.setAttribute('x','5'); b1.setAttribute('y','9'); b1.setAttribute('width','2'); b1.setAttribute('height','5'); b1.setAttribute('fill', strength>=1?color:grey);
+    const b2=document.createElementNS(SVG_NS,'rect'); b2.setAttribute('x','9'); b2.setAttribute('y','7'); b2.setAttribute('width','2'); b2.setAttribute('height','7'); b2.setAttribute('fill', strength>=2?color:grey);
+    const b3=document.createElementNS(SVG_NS,'rect'); b3.setAttribute('x','13'); b3.setAttribute('y','5'); b3.setAttribute('width','2'); b3.setAttribute('height','9'); b3.setAttribute('fill', strength>=3?color:grey);
+    const b4=document.createElementNS(SVG_NS,'rect'); b4.setAttribute('x','17'); b4.setAttribute('y','3'); b4.setAttribute('width','2'); b4.setAttribute('height','11'); b4.setAttribute('fill', strength>=4?color:grey);
+    svg.append(b1,b2,b3,b4);
     return svg;
   }
   function formatRemain(ms){
@@ -298,8 +317,8 @@
     const top=document.createElement('div'); top.className='meta space';
     const tLeft=document.createElement('span'); tLeft.textContent=fmtDate(m.heart_time);
     const tRight=document.createElement('span');
-    const ic=batteryIcon(m.battery);
-    const pc=document.createElement('span'); pc.style.marginLeft='4px'; pc.textContent=(m.battery==null?'-':m.battery)+'%';
+    const ic=networkIcon(m.net||'');
+    const pc=document.createElement('span'); pc.style.marginLeft='4px'; pc.textContent=String(m.net||'-');
     tRight.append(ic, pc);
     top.append(tLeft, tRight);
     const second=document.createElement('div'); second.className='meta';
@@ -480,20 +499,21 @@
     const tgt = (window.store.messages||[]).find(x => x.here_name===here && x.heart_time===ht);
     const now = Date.now();
     const batt0 = window.api.batteryForSend ? window.api.batteryForSend() : null;
+    const net0 = window.api.netForSend ? window.api.netForSend() : null;
     const geo0 = window.api.geolocTryFast ? window.api.geolocTryFast() : null;
     const previewMsg = tgt ? previewOf(tgt) : '';
     const previewNick = tgt ? (tgt.here_nick_name||'') : '';
     window.store.upsertMessage({
       here_name: window.store.here_name, heart_time: now,
-      here_nick_name: window.store.nick, battery: batt0, lat: geo0?.lat ?? null, lng: geo0?.lng ?? null, msg: text, message: text, kind: 'text', _status: 'pending',
+      here_nick_name: window.store.nick, battery: batt0, net: net0, lat: geo0?.lat ?? null, lng: geo0?.lng ?? null, msg: text, message: text, kind: 'text', _status: 'pending',
       reply_to: ht, reply_preview_msg: previewMsg, reply_preview_nick: previewNick
     });
     render();
     try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch {}
     try{
-      const res = await window.api.send({ nick: window.store.nick, here_nick_name: window.store.nick, battery: batt0, lat: geo0?.lat, lng: geo0?.lng, message: text, msg: text, kind: 'text', reply_to: ht, relay_to: ht });
+      const res = await window.api.send({ nick: window.store.nick, here_nick_name: window.store.nick, battery: batt0, net: net0, lat: geo0?.lat, lng: geo0?.lng, message: text, msg: text, kind: 'text', reply_to: ht, relay_to: ht });
       const serverTs = Number(res?.ts) || now;
-      window.store.updateByTime(now, { battery: batt0, lat: geo0?.lat, lng: geo0?.lng, heart_time: serverTs, _status: 'sent', reply_to: ht, reply_preview_msg: previewMsg, reply_preview_nick: previewNick });
+      window.store.updateByTime(now, { battery: batt0, net: net0, lat: geo0?.lat, lng: geo0?.lng, heart_time: serverTs, _status: 'sent', reply_to: ht, reply_preview_msg: previewMsg, reply_preview_nick: previewNick });
       render();
     } catch {
       window.store.updateByTime(now, { _status: 'failed' }); render();
@@ -631,6 +651,10 @@
         const v = window.api.batteryForSend();
         try { if(window.api.saveBatteryCache) window.api.saveBatteryCache(v); } catch {}
       }
+      if (window.api.netForSend) {
+        const n = window.api.netForSend();
+        try { if (window.api.saveNetCache) window.api.saveNetCache(n); } catch {}
+      }
     } catch {}
     let g = null;
     try { g = await (window.api.geoloc && window.api.geoloc()); } catch {}
@@ -656,7 +680,7 @@
       if (minePending) {
         const oldTs = minePending.heart_time;
         const msgv = (item.msg!=null) ? item.msg : (item.message||'');
-        window.store.updateByTime(oldTs, { heart_time: item.heart_time, _status: 'sent', msg: msgv, kind: item.kind, reply_to: item.reply_to, reply_preview_msg: item.reply_preview_msg, reply_preview_nick: item.reply_preview_nick, readers: item.readers, read_count: item.read_count, file: item.file, battery: item.battery, lat: item.lat, lng: item.lng });
+        window.store.updateByTime(oldTs, { heart_time: item.heart_time, _status: 'sent', msg: msgv, kind: item.kind, reply_to: item.reply_to, reply_preview_msg: item.reply_preview_msg, reply_preview_nick: item.reply_preview_nick, readers: item.readers, read_count: item.read_count, file: item.file, battery: item.battery, lat: item.lat, lng: item.lng, net: item.net });
         const oldNode = document.querySelector(`.bubble[data-ht="${oldTs}"]`);
         if (oldNode) oldNode.replaceWith(bubble({ ...minePending, ...item, msg: msgv }));
         return;
@@ -664,9 +688,9 @@
     }
     const prev = (window.store.messages||[]).find(x => x.here_name===here && x.heart_time===item.heart_time);
     const msgv = (item.msg!=null) ? item.msg : (item.message||'');
-    const changed = !prev || prev.msg!==msgv || prev.read_count!==item.read_count || JSON.stringify(prev.readers||[])!==JSON.stringify(item.readers||[]) || (prev.file?.key)!==(item.file?.key) || prev.battery!==item.battery || prev.lat!==item.lat || prev.lng!==item.lng || prev.reply_to!==item.reply_to;
+    const changed = !prev || prev.msg!==msgv || prev.read_count!==item.read_count || JSON.stringify(prev.readers||[])!==JSON.stringify(item.readers||[]) || (prev.file?.key)!==(item.file?.key) || prev.battery!==item.battery || prev.lat!==item.lat || prev.lng!==item.lng || prev.reply_to!==item.reply_to || prev.net!==item.net;
     if (!changed) return;
-    window.store.updateByTime(item.heart_time, { here_name: here, here_nick_name: item.here_nick_name, msg: msgv, kind: item.kind, reply_to: item.reply_to, reply_preview_msg: item.reply_preview_msg, reply_preview_nick: item.reply_preview_nick, readers: item.readers, read_count: item.read_count, file: item.file, battery: item.battery, lat: item.lat, lng: item.lng, _status: 'sent' });
+    window.store.updateByTime(item.heart_time, { here_name: here, here_nick_name: item.here_nick_name, msg: msgv, kind: item.kind, reply_to: item.reply_to, reply_preview_msg: item.reply_preview_msg, reply_preview_nick: item.reply_preview_nick, readers: item.readers, read_count: item.read_count, file: item.file, battery: item.battery, lat: item.lat, lng: item.lng, net: item.net, _status: 'sent' });
     const node = document.querySelector(`.bubble[data-ht="${item.heart_time}"]`);
     if (node) {
       node.replaceWith(bubble({ ...(prev||{}), ...item, msg: msgv }));
@@ -855,12 +879,14 @@
     const emoji = TYPE_EMOJI[label] || '🏷️';
     const composed = label ? (msgv ? `${emoji} ${label}｜${msgv}` : `${emoji} ${label}`) : msgv;
     const batt = window.api.batteryForSend ? window.api.batteryForSend() : null;
+    const net0 = window.api.netForSend ? window.api.netForSend() : null;
     const geoFast = window.api.geolocTryFast ? window.api.geolocTryFast() : null;
     window.store.upsertMessage({
       here_name: window.store.here_name,
       heart_time: now,
       here_nick_name: window.store.nick,
       battery: batt,
+      net: net0,
       lat: geoFast?.lat ?? null, lng: geoFast?.lng ?? null,
       msg: composed, message: composed,
       kind: 'text',
@@ -870,9 +896,9 @@
     render();
     closePunch();
     (async()=>{
-      const res = await window.api.send({ nick: window.store.nick, battery: batt, lat: geoFast?.lat, lng: geoFast?.lng, message: composed, countdownTs });
+      const res = await window.api.send({ nick: window.store.nick, battery: batt, net: net0, lat: geoFast?.lat, lng: geoFast?.lng, message: composed, countdownTs });
       const serverTs = Number(res?.ts) || now;
-      window.store.updateByTime(now, { battery: batt, lat: geoFast?.lat, lng: geoFast?.lng, heart_time: serverTs, _status: 'sent' });
+      window.store.updateByTime(now, { battery: batt, net: net0, lat: geoFast?.lat, lng: geoFast?.lng, heart_time: serverTs, _status: 'sent' });
       render();
     })().catch(()=>{ /* 保持占位，后续可加失败状态与重试 */ });
   }
@@ -923,10 +949,11 @@
     btnSend.disabled = true;
     const now = Date.now();
     const batt0 = window.api.batteryForSend ? window.api.batteryForSend() : null;
+    const net0 = window.api.netForSend ? window.api.netForSend() : null;
     const geo0 = window.api.geolocTryFast ? window.api.geolocTryFast() : null;
     window.store.upsertMessage({
       here_name: window.store.here_name, heart_time: now,
-      here_nick_name: window.store.nick, battery: batt0, lat: geo0?.lat ?? null, lng: geo0?.lng ?? null, msg: v, message: v, kind: 'text', _status: 'pending'
+      here_nick_name: window.store.nick, battery: batt0, net: net0, lat: geo0?.lat ?? null, lng: geo0?.lng ?? null, msg: v, message: v, kind: 'text', _status: 'pending'
     });
     const node = document.querySelector(`.bubble[data-ht="${now}"]`);
     if (!node) { render(); }
@@ -934,11 +961,12 @@
     text.value=''; syncComposerButton();
     (async()=>{
       const batt = batt0;
+      const netx = net0;
       const geoFast = geo0;
-      const res = await window.api.send({ nick: window.store.nick, here_nick_name: window.store.nick, battery: batt, lat: geoFast?.lat, lng: geoFast?.lng, message: v, msg: v, kind: 'text' });
+      const res = await window.api.send({ nick: window.store.nick, here_nick_name: window.store.nick, battery: batt, net: netx, lat: geoFast?.lat, lng: geoFast?.lng, message: v, msg: v, kind: 'text' });
       const serverTs = Number(res?.ts) || now;
-      window.store.updateByTime(now, { battery: batt, lat: geoFast?.lat, lng: geoFast?.lng, heart_time: serverTs, _status: 'sent' });
-      const finalItem = { here_name: window.store.here_name, heart_time: serverTs, here_nick_name: window.store.nick, battery: batt, lat: geoFast?.lat, lng: geoFast?.lng, msg: v, message: v, kind: 'text', _status: 'sent' };
+      window.store.updateByTime(now, { battery: batt, net: netx, lat: geoFast?.lat, lng: geoFast?.lng, heart_time: serverTs, _status: 'sent' });
+      const finalItem = { here_name: window.store.here_name, heart_time: serverTs, here_nick_name: window.store.nick, battery: batt, net: netx, lat: geoFast?.lat, lng: geoFast?.lng, msg: v, message: v, kind: 'text', _status: 'sent' };
       const pendingNode = document.querySelector(`.bubble[data-ht="${now}"]`);
       if (pendingNode) {
         pendingNode.replaceWith(bubble(finalItem));
@@ -1031,11 +1059,12 @@
     const ext = mime==='audio/mp4'?'m4a':(mime.split('/')[1]||'bin');
     const now = Date.now();
     const batt = window.api.batteryForSend ? window.api.batteryForSend() : null;
+    const net0 = window.api.netForSend ? window.api.netForSend() : null;
     const geoFast = window.api.geolocTryFast ? window.api.geolocTryFast() : null;
     const localUrl = URL.createObjectURL(blob);
     window.store.upsertMessage({
       here_name: window.store.here_name, heart_time: now,
-      here_nick_name: window.store.nick, battery: batt, lat: geoFast?.lat, lng: geoFast?.lng, msg: '', kind: 'audio', file: { key: null, local_url: localUrl, content_type: blob.type, size: blob.size, duration_ms: Date.now()-recStart }, _status: 'pending'
+      here_nick_name: window.store.nick, battery: batt, net: net0, lat: geoFast?.lat, lng: geoFast?.lng, msg: '', kind: 'audio', file: { key: null, local_url: localUrl, content_type: blob.type, size: blob.size, duration_ms: Date.now()-recStart }, _status: 'pending'
     });
     render();
     try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch {}
@@ -1044,7 +1073,7 @@
     const { key, url } = up;
     try {
       await fetch(url, { method: 'PUT', headers: { 'Content-Type': blob.type }, body: blob });
-      const res = await window.api.send({ nick: window.store.nick, here_nick_name: window.store.nick, battery: batt, lat: geoFast?.lat, lng: geoFast?.lng, message: '', kind: 'audio', file: { key, content_type: blob.type, size: blob.size, duration_ms: Date.now()-recStart } });
+      const res = await window.api.send({ nick: window.store.nick, here_nick_name: window.store.nick, battery: batt, net: net0, lat: geoFast?.lat, lng: geoFast?.lng, message: '', kind: 'audio', file: { key, content_type: blob.type, size: blob.size, duration_ms: Date.now()-recStart } });
       const serverTs = Number(res?.ts) || now;
       window.store.updateByTime(now, { heart_time: serverTs, _status: 'sent', file: { key, local_url: localUrl, content_type: blob.type, size: blob.size, duration_ms: Date.now()-recStart } });
       try { if (window.api.appendFileIndex) window.api.appendFileIndex(key, serverTs); } catch {}
@@ -1064,20 +1093,21 @@
     const m = (window.store.messages||[]).find(x => x.here_name===here && x.heart_time===ht);
     if (!m) return;
     const batt = window.api.batteryForSend ? window.api.batteryForSend() : null;
+    const net0 = window.api.netForSend ? window.api.netForSend() : null;
     const geo = window.api.geolocTryFast ? window.api.geolocTryFast() : null;
     window.store.updateByTime(ht, { _status: 'pending' }); render();
     try{
       if ((m.kind||'text') === 'text') {
-        const res = await window.api.send({ nick: window.store.nick, here_nick_name: window.store.nick, battery: batt, lat: geo?.lat, lng: geo?.lng, message: m.msg||'', msg: m.msg||'', kind: 'text' });
+        const res = await window.api.send({ nick: window.store.nick, here_nick_name: window.store.nick, battery: batt, net: net0, lat: geo?.lat, lng: geo?.lng, message: m.msg||'', msg: m.msg||'', kind: 'text' });
         const serverTs = Number(res?.ts) || ht;
-        window.store.updateByTime(ht, { heart_time: serverTs, _status: 'sent', battery: batt, lat: geo?.lat, lng: geo?.lng });
+        window.store.updateByTime(ht, { heart_time: serverTs, _status: 'sent', battery: batt, net: net0, lat: geo?.lat, lng: geo?.lng });
         render();
         return;
       }
       if (m.file && m.file.key) {
-        const res = await window.api.send({ nick: window.store.nick, here_nick_name: window.store.nick, battery: batt, lat: geo?.lat, lng: geo?.lng, message: '', kind: m.kind||'file', file: { key: m.file.key, content_type: m.file.content_type, size: m.file.size, duration_ms: m.file.duration_ms } });
+        const res = await window.api.send({ nick: window.store.nick, here_nick_name: window.store.nick, battery: batt, net: net0, lat: geo?.lat, lng: geo?.lng, message: '', kind: m.kind||'file', file: { key: m.file.key, content_type: m.file.content_type, size: m.file.size, duration_ms: m.file.duration_ms } });
         const serverTs = Number(res?.ts) || ht;
-        window.store.updateByTime(ht, { heart_time: serverTs, _status: 'sent', battery: batt, lat: geo?.lat, lng: geo?.lng });
+        window.store.updateByTime(ht, { heart_time: serverTs, _status: 'sent', battery: batt, net: net0, lat: geo?.lat, lng: geo?.lng });
         render();
         return;
       }
@@ -1089,7 +1119,7 @@
         const up = await window.api.uploadUrl(ct, ext);
         if (!up || !up.url || !up.key) throw new Error('no upload url');
         await fetch(up.url, { method: 'PUT', headers: { 'Content-Type': ct }, body: blob });
-        const res = await window.api.send({ nick: window.store.nick, here_nick_name: window.store.nick, battery: batt, lat: geo?.lat, lng: geo?.lng, message: '', kind: m.kind||'file', file: { key: up.key, content_type: ct, size: blob.size, duration_ms: m.file.duration_ms } });
+        const res = await window.api.send({ nick: window.store.nick, here_nick_name: window.store.nick, battery: batt, net: net0, lat: geo?.lat, lng: geo?.lng, message: '', kind: m.kind||'file', file: { key: up.key, content_type: ct, size: blob.size, duration_ms: m.file.duration_ms } });
         const serverTs = Number(res?.ts) || ht;
         window.store.updateByTime(ht, { heart_time: serverTs, _status: 'sent', file: { ...m.file, key: up.key, content_type: ct, size: blob.size } });
         try { if (window.api.appendFileIndex) window.api.appendFileIndex(up.key, serverTs); } catch {}
@@ -1106,6 +1136,7 @@
     const ext = (file.name && file.name.includes('.')) ? file.name.substring(file.name.lastIndexOf('.')) : '';
     const now = Date.now();
     const batt = window.api.batteryForSend ? window.api.batteryForSend() : null;
+    const net0 = window.api.netForSend ? window.api.netForSend() : null;
     const geoFast = window.api.geolocTryFast ? window.api.geolocTryFast() : null;
     const localUrl = (kind==='image' || kind==='audio') ? URL.createObjectURL(file) : null;
     let thumbDataUrl = null;
@@ -1124,7 +1155,7 @@
         thumbDataUrl = canvas.toDataURL('image/jpeg', 0.7);
       } catch {}
     }
-    window.store.upsertMessage({ here_name: window.store.here_name, heart_time: now, here_nick_name: window.store.nick, battery: batt, lat: geoFast?.lat, lng: geoFast?.lng, msg: '', kind, file: { key: null, local_url: localUrl, content_type: ct, size: file.size, thumb_data_url: thumbDataUrl }, _status: 'pending' });
+    window.store.upsertMessage({ here_name: window.store.here_name, heart_time: now, here_nick_name: window.store.nick, battery: batt, net: net0, lat: geoFast?.lat, lng: geoFast?.lng, msg: '', kind, file: { key: null, local_url: localUrl, content_type: ct, size: file.size, thumb_data_url: thumbDataUrl }, _status: 'pending' });
     render();
     try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch {}
     try{
@@ -1132,7 +1163,7 @@
       if (!up || !up.url || !up.key) { throw new Error('no upload url'); }
       const { key, url } = up;
       await fetch(url, { method: 'PUT', headers: { 'Content-Type': ct }, body: file });
-      const res = await window.api.send({ nick: window.store.nick, here_nick_name: window.store.nick, battery: batt, lat: geoFast?.lat, lng: geoFast?.lng, message: '', kind, file: { key, content_type: ct, size: file.size } });
+      const res = await window.api.send({ nick: window.store.nick, here_nick_name: window.store.nick, battery: batt, net: net0, lat: geoFast?.lat, lng: geoFast?.lng, message: '', kind, file: { key, content_type: ct, size: file.size } });
       const serverTs = Number(res?.ts) || now;
       window.store.updateByTime(now, { heart_time: serverTs, _status: 'sent', file: { key, local_url: localUrl, content_type: ct, size: file.size, thumb_data_url: thumbDataUrl } });
       try { if (key && thumbDataUrl) localStorage.setItem('thumb_'+key, thumbDataUrl); } catch {}
