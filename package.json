@@ -8,7 +8,7 @@
     "watch": "tsc -w",
     "cdk": "cdk",
     "synth": "cdk synth",
-    "deploy": "powershell -NoProfile -Command \"$ErrorActionPreference='Stop'; if (-not $env:AWS_PROFILE) { $env:AWS_PROFILE='dam' }; if (-not $env:AWS_REGION) { $env:AWS_REGION='ap-east-1' }; $env:AWS_PAGER=''; aws sts get-caller-identity --no-cli-pager > $null; cdk deploy\"",
+    "deploy": "powershell -NoProfile -Command \"$ErrorActionPreference='Stop'; if (-not $env:AWS_PROFILE) { $env:AWS_PROFILE='dam' }; if (-not $env:AWS_REGION) { $env:AWS_REGION='ap-east-1' }; $env:AWS_PAGER=''; aws sts get-caller-identity --no-cli-pager > $null; cdk deploy --require-approval never\"",
     "diff": "cdk diff",
     "destroy": "cdk destroy",
     "site:bucket": "powershell -NoProfile -Command \"$env:AWS_PAGER=''; $bn = (aws cloudformation describe-stacks --no-cli-pager --stack-name HelloApiStack --region ap-east-1 --query \\\"Stacks[0].Outputs[?contains(OutputKey,'SiteBucketName')].OutputValue\\\" --output text); Write-Output $bn\"",

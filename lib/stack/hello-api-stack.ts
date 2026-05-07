@@ -151,6 +151,20 @@ export class HelloApiStack extends cdk.Stack {
     httpSite.api.addRoutes({ path: '/viewer', methods: [apigwv2.HttpMethod.GET], integration: releasePageInt });
     httpSite.api.addRoutes({ path: '/viewer/{proxy+}', methods: [apigwv2.HttpMethod.GET], integration: releasePageInt });
 
+    // Dedicated API for Viewer (Carrier Domain)
+    const viewerApi = new apigwv2.HttpApi(this, 'ViewerApi', {
+      apiName: 'CarrierViewer',
+      corsPreflight: {
+        allowOrigins: ['*'],
+        allowMethods: [apigwv2.CorsHttpMethod.GET, apigwv2.CorsHttpMethod.OPTIONS],
+      },
+    });
+    const viewerReleaseInt = new integrations.HttpLambdaIntegration('ViewerReleaseInt', releaseViewer.fn);
+    const viewerPageInt = new integrations.HttpLambdaIntegration('ViewerPageInt', releasePage.fn);
+    viewerApi.addRoutes({ path: '/release', methods: [apigwv2.HttpMethod.GET], integration: viewerReleaseInt });
+    viewerApi.addRoutes({ path: '/', methods: [apigwv2.HttpMethod.GET], integration: viewerPageInt });
+    viewerApi.addRoutes({ path: '/{proxy+}', methods: [apigwv2.HttpMethod.GET], integration: viewerPageInt });
+
     new cdk.CfnOutput(this, 'ReleaseBucketName', { value: releaseBucket.bucket.bucketName, exportName: 'ReleaseBucketName' });
     new cdk.CfnOutput(this, 'ReleasePageUrl', { value: `${httpSite.baseUrl}/viewer`, exportName: 'ReleasePageUrl' });
 
@@ -186,9 +200,9 @@ export class HelloApiStack extends cdk.Stack {
       certificate: sharedCyternCert,
     });
     new apigwv2.ApiMapping(this, 'CarrierApiMapping', {
-      api: httpSite.api,
+      api: viewerApi,
       domainName: carrierDomain,
-      stage: httpSite.api.defaultStage!,
+      stage: viewerApi.defaultStage!,
     });
     new route53.ARecord(this, 'CarrierAliasA', {
       zone,
@@ -212,6 +226,6 @@ export class HelloApiStack extends cdk.Stack {
     });
 
     new cdk.CfnOutput(this, 'HereWebUrl', { value: 'https://here.cytern.click/' });
-    new cdk.CfnOutput(this, 'CarrierViewerUrl', { value: 'https://carrier.cytern.click/viewer' });
+    new cdk.CfnOutput(this, 'CarrierViewerUrl', { value: 'https://carrier.cytern.click/' });
   }
 }

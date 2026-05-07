@@ -22,8 +22,13 @@ function getContentType(ext) {
 
 exports.handler = async (event) => {
   try {
-    const rawPath = event.rawPath || (event.requestContext && event.requestContext.http && event.requestContext.http.path) || '/viewer';
-    let subPath = rawPath.replace(/^\/viewer\/?/, '');
+    const rawPath = event.rawPath || (event.requestContext && event.requestContext.http && event.requestContext.http.path) || '/';
+    let subPath = rawPath;
+    if (subPath.startsWith('/viewer')) {
+      subPath = subPath.replace(/^\/viewer\/?/, '');
+    } else {
+      subPath = subPath.replace(/^\/?/, '');
+    }
 
     // 1. 如果请求的是根路径，或者是 doc.html，渲染主页面
     if (!subPath || subPath === 'doc.html') {
@@ -37,14 +42,16 @@ exports.handler = async (event) => {
       }
 
       const host = event.headers?.host || event.requestContext?.domainName || '';
-      const downloadUrl = `https://${host}/viewer/release`;
+      const isCustom = host.includes('carrier.cytern.click');
+      const downloadUrl = isCustom ? `https://${host}/release` : `https://${host}/viewer/release`;
+      const baseHref = isCustom ? '/' : '/viewer/';
 
       const html = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <base href="/viewer/"> <!-- 关键：保证相对路径图片能正确请求到当前 Lambda 的子路由 -->
+    <base href="${baseHref}"> <!-- 关键：保证相对路径图片能正确请求到当前 Lambda 的子路由 -->
     <title>Carrier Viewer 设备运维软件</title>
     <style>
         body {
