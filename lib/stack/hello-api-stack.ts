@@ -18,6 +18,9 @@ import { WsApi } from '../constructs/ws-api';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as route53 from 'aws-cdk-lib/aws-route53';
+import * as route53Targets from 'aws-cdk-lib/aws-route53-targets';
+import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 
 export class HelloApiStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -150,5 +153,65 @@ export class HelloApiStack extends cdk.Stack {
 
     new cdk.CfnOutput(this, 'ReleaseBucketName', { value: releaseBucket.bucket.bucketName, exportName: 'ReleaseBucketName' });
     new cdk.CfnOutput(this, 'ReleasePageUrl', { value: `${httpSite.baseUrl}/viewer`, exportName: 'ReleasePageUrl' });
+
+    const zone = route53.HostedZone.fromLookup(this, 'CyternZone', { domainName: 'cytern.click' });
+
+    const hereDomain = apigwv2.DomainName.fromDomainNameAttributes(this, 'HereDomain', {
+      name: 'here.cytern.click',
+      regionalDomainName: 'd-fbobiu3nsg.execute-api.ap-east-1.amazonaws.com',
+      regionalHostedZoneId: 'Z3FD1VL90ND7K5',
+    });
+    new route53.ARecord(this, 'HereAliasA', {
+      zone,
+      recordName: 'here',
+      target: route53.RecordTarget.fromAlias(
+        new route53Targets.ApiGatewayv2DomainProperties(hereDomain.regionalDomainName, hereDomain.regionalHostedZoneId),
+      ),
+    });
+    new route53.AaaaRecord(this, 'HereAliasAAAA', {
+      zone,
+      recordName: 'here',
+      target: route53.RecordTarget.fromAlias(
+        new route53Targets.ApiGatewayv2DomainProperties(hereDomain.regionalDomainName, hereDomain.regionalHostedZoneId),
+      ),
+    });
+
+    const sharedCyternCert = acm.Certificate.fromCertificateArn(
+      this,
+      'CyternSharedCert',
+      'arn:aws:acm:ap-east-1:814695462089:certificate/d042c0b2-5c88-48db-8d79-370772c217ad',
+    );
+    const carrierDomain = new apigwv2.DomainName(this, 'CarrierDomain', {
+      domainName: 'carrier.cytern.click',
+      certificate: sharedCyternCert,
+    });
+    new apigwv2.ApiMapping(this, 'CarrierApiMapping', {
+      api: httpSite.api,
+      domainName: carrierDomain,
+      stage: httpSite.api.defaultStage!,
+    });
+    new route53.ARecord(this, 'CarrierAliasA', {
+      zone,
+      recordName: 'carrier',
+      target: route53.RecordTarget.fromAlias(
+        new route53Targets.ApiGatewayv2DomainProperties(
+          carrierDomain.regionalDomainName,
+          carrierDomain.regionalHostedZoneId,
+        ),
+      ),
+    });
+    new route53.AaaaRecord(this, 'CarrierAliasAAAA', {
+      zone,
+      recordName: 'carrier',
+      target: route53.RecordTarget.fromAlias(
+        new route53Targets.ApiGatewayv2DomainProperties(
+          carrierDomain.regionalDomainName,
+          carrierDomain.regionalHostedZoneId,
+        ),
+      ),
+    });
+
+    new cdk.CfnOutput(this, 'HereWebUrl', { value: 'https://here.cytern.click/' });
+    new cdk.CfnOutput(this, 'CarrierViewerUrl', { value: 'https://carrier.cytern.click/viewer' });
   }
 }
