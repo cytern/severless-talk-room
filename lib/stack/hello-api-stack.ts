@@ -7,6 +7,9 @@ import { HiHereTable } from '../constructs/hihere-table';
 import { ChatWriteFunction } from '../constructs/chat-write-function';
 import { ChatListFunction } from '../constructs/chat-list-function';
 import { ChatStatusFunction } from '../constructs/chat-status-function';
+import { ReleaseBucket } from '../constructs/release-bucket';
+import { ReleaseViewerFunction } from '../constructs/release-viewer-function';
+import { ReleasePageFunction } from '../constructs/release-page-function';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as apigwv2 from 'aws-cdk-lib/aws-apigatewayv2';
 import * as integrations from 'aws-cdk-lib/aws-apigatewayv2-integrations';
@@ -124,5 +127,28 @@ export class HelloApiStack extends cdk.Stack {
     }));
     const mapInt = new integrations.HttpLambdaIntegration('AmapStaticInt', mapStatic);
     httpSite.api.addRoutes({ path: '/api/map/static', methods: [apigwv2.HttpMethod.GET], integration: mapInt });
+
+    // Release Viewer
+    const releaseBucket = new ReleaseBucket(this, 'ReleaseBucket');
+    const releaseViewer = new ReleaseViewerFunction(this, 'ReleaseViewer', {
+      bucketName: releaseBucket.bucket.bucketName,
+      layers: [awsSdkLayer.layer]
+    });
+    releaseBucket.bucket.grantRead(releaseViewer.fn);
+    const releaseViewerInt = new integrations.HttpLambdaIntegration('ReleaseViewerInt', releaseViewer.fn);
+    httpSite.api.addRoutes({ path: '/viewer/release', methods: [apigwv2.HttpMethod.GET], integration: releaseViewerInt });
+    
+    // Release Web Page
+    const releasePage = new ReleasePageFunction(this, 'ReleasePage', {
+      bucketName: releaseBucket.bucket.bucketName,
+      layers: [awsSdkLayer.layer]
+    });
+    releaseBucket.bucket.grantRead(releasePage.fn);
+    const releasePageInt = new integrations.HttpLambdaIntegration('ReleasePageInt', releasePage.fn);
+    httpSite.api.addRoutes({ path: '/viewer', methods: [apigwv2.HttpMethod.GET], integration: releasePageInt });
+    httpSite.api.addRoutes({ path: '/viewer/{proxy+}', methods: [apigwv2.HttpMethod.GET], integration: releasePageInt });
+
+    new cdk.CfnOutput(this, 'ReleaseBucketName', { value: releaseBucket.bucket.bucketName, exportName: 'ReleaseBucketName' });
+    new cdk.CfnOutput(this, 'ReleasePageUrl', { value: `${httpSite.baseUrl}/viewer`, exportName: 'ReleasePageUrl' });
   }
 }

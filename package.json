@@ -15,6 +15,7 @@
     "site:url": "powershell -NoProfile -Command \"$env:AWS_PAGER=''; aws cloudformation describe-stacks --no-cli-pager --stack-name HelloApiStack --region ap-east-1 --query \\\"Stacks[0].Outputs[?OutputKey=='HttpApiBaseUrl'].OutputValue\\\" --output text\"",
     "site:sync": "powershell -NoProfile -Command \"$env:AWS_PROFILE='dam'; $env:AWS_REGION='ap-east-1'; $env:AWS_PAGER=''; $bn = (npm run -s site:bucket); if (-not $bn) { Write-Error 'SiteBucketName not found from stack outputs. Deploy stack first.'; exit 1 }; aws s3 sync web \\\"s3://$bn\\\" --delete --no-cli-pager; Write-Output \\\"Synced to s3://$bn\\\";\"",
     "web:deploy": "ts-node util/deploy-web.ts",
+    "release:deploy": "ts-node util/deploy-release.ts",
     "layer:build": "ts-node util/build-layer.ts",
     "layer:deploy": "npm run layer:build && cdk deploy"
   },

@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>设备实时状态查看器操作手册</title>
+  <style>
+    body {
+      font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+      line-height: 1.65;
+      color: #1f2937;
+      margin: 0;
+      background: #f5f7fb;
+    }
+    .wrap {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+    h1, h2, h3 {
+      color: #0f172a;
+      margin-top: 28px;
+    }
+    .card {
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      padding: 18px;
+      margin: 14px 0;
+      box-shadow: 0 2px 10px rgba(15, 23, 42, 0.03);
+    }
+    .tip {
+      background: #ecfeff;
+      border-left: 4px solid #06b6d4;
+      padding: 10px 12px;
+      margin: 10px 0;
+    }
+    .warn {
+      background: #fff7ed;
+      border-left: 4px solid #f97316;
+      padding: 10px 12px;
+      margin: 10px 0;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 10px 0 6px 0;
+      background: #fff;
+    }
+    th, td {
+      border: 1px solid #e5e7eb;
+      padding: 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: #f8fafc;
+    }
+    code {
+      background: #f1f5f9;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    ul {
+      margin: 8px 0 8px 20px;
+    }
+    .small {
+      color: #64748b;
+      font-size: 13px;
+    }
+    .section-image {
+      margin: 12px 0 14px 0;
+      padding: 10px;
+      border: 1px dashed #94a3b8;
+      border-radius: 8px;
+      background: #f8fafc;
+    }
+    .section-image img {
+      width: 100%;
+      max-height: 360px;
+      object-fit: contain;
+      display: block;
+      border-radius: 6px;
+      background: #e2e8f0;
+    }
+    .section-image .img-note {
+      margin-top: 6px;
+      color: #475569;
+      font-size: 13px;
+    }
+    .index-list {
+      margin: 6px 0 0 20px;
+    }
+    .index-list li {
+      margin: 4px 0;
+    }
+    .index-list a {
+      color: #0369a1;
+      text-decoration: none;
+    }
+    .index-list a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>设备实时状态查看器操作手册</h1>
+    <p class="small">文档版本：v1.2（2026-05-06）</p>
+     <div class="card">
+      <h2>修改记录</h2>
+      <ul>
+        <li>2026-05-06：列表页新增第二行按钮 <code>一键添加安全组</code>增加多个测试ip出口，同时支持自己填入安全组</li>
+        <li>2026-04-29：列表页新增第二行按钮 <code>一键添加安全组</code>，自动采集公网 IPv4 并维护安全组规则。</li>
+        <li>2026-04-29：优化历史查询行为，时间输入非法时不回落默认分页；查询前清空旧数据，查无数据时明确提示“暂无数据”。</li>
+        <li>2026-04-29：心跳/写入/下控统一值类型处理，优先尝试 number，失败再按 string；下控/心跳成功后自动关闭确认弹窗。</li>
+        <li>2026-04-28：新增 API 服务能力，支持 REST 影子控制/查询与 AWS MQTT over WebSocket 透明中转。</li>
+        <li>2026-04-28：补充 API 服务使用方案、内部 REST 示例（curl）与 AWS 官方文档链接说明。</li>
+        <li>2026-04-27：新增 API 消息窗口聚合日志，按每 10 条中转/操作消息输出一条摘要。</li>
+        <li>2026-04-26：调整列表页排序，IDU/ODU 按“在线未删除 → 离线未删除 → 已删除”分组并按名称排序。</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>目录</h2>
+      <ol class="index-list">
+        <li><a href="#section-quickstart">快速开始索引</a></li>
+        <li><a href="#section-1">第一节：完整启用流程（必须按顺序）</a></li>
+        <li><a href="#section-2">第二节：启动与授权</a></li>
+        <li><a href="#section-3">第三节：环境加载与登录</a></li>
+        <li><a href="#section-4">第四节：主页面（清单页）按钮与逻辑</a></li>
+        <li><a href="#section-5">第五节：详情页（网关/IDU/ODU）按钮与操作列</a></li>
+        <li><a href="#section-6">第六节：历史/记录类弹窗</a></li>
+        <li><a href="#section-7">第七节：OTA 升级弹窗</a></li>
+        <li><a href="#section-8">第八节：影子与模拟上线弹窗</a></li>
+        <li><a href="#section-9">第九节：通用提示与异常处理</a></li>
+        <li><a href="#section-10">第十节：API服务与自动化测试</a></li>
+      </ol>
+    </div>
+
+    <div class="card" id="section-quickstart">
+      <h2>快速开始索引</h2>
+      <ol>
+        <li>导出设备过去一个月心跳/上电记录：点击 Load 加载环境，输入网关 SN，点击“加载数据”，再点“心跳记录”或“上电记录”，输入时间范围后点击“查询”，等待完成后点击“导出”。（参考：<a href="#section-3">第三节</a>、<a href="#section-4">第四节</a>、<a href="#section-6">第六节</a>）</li>
+        <li>查看网关当前软件版本：加载数据后，点击网关信息下“详情”，在筛选框输入 <code>version</code> 即可定位。（参考：<a href="#section-4">第四节</a>、<a href="#section-5">第五节</a>）</li>
+        <li>导出某个指标过去一周历史上报记录：加载网关数据后，点击某个内机/外机“详情”，再点“历史”查看并导出。（参考：<a href="#section-5">第五节</a>、<a href="#section-6">第六节</a>）</li>
+        <li>查询此网关全部云端下控记录（当前适配 dev/test）：点击“控制记录”，输入时间范围后查询；或清空时间范围做分页查询全部。（参考：<a href="#section-4">第四节</a>、<a href="#section-6">第六节</a>）</li>
+        <li>查询 OTA 记录：点击“升级记录”，输入时间范围查询；或清空时间范围查询全部。（参考：<a href="#section-7">第七节</a>）</li>
+        <li>启动调试服务器：点击“API 服务”按钮，可以开启本地调试服务器，提供 RESTful 方式下控设备的接口。（参考：<a href="#section-4">第四节</a>）</li>
+      </ol>
+    </div>
+
+    <div class="card">
+      <h2 id="section-1">第一节：完整启用流程（必须按顺序）</h2>
+      <div class="section-image">
+        <img src="./密钥.png" alt="第一节流程示意图" />
+      </div>
+      <div class="warn">
+        必须按以下顺序完成：<strong>授权码输入 → 点击 Load 加载环境 → 输入运维账号密码（含验证码）登录 → 输入网关 SN → 点击“加载数据”</strong>，否则软件无法完整使用。
+      </div>
+      <ol>
+        <li>启动软件后，先弹出软件激活输入框，输入授权密钥（按月有效）。</li>
+        <li>激活成功后进入主界面，在 Environment 区域选择环境并点击 <code>Load</code>。</li>
+        <li>若凭据未就绪/过期，系统弹出登录框：输入运维账号、密码、验证码，点击 <code>登录</code>。</li>
+        <li>回到主界面，在查询区域输入 <code>GatewaySn</code>。</li>
+        <li>点击 <code>加载数据</code>，成功后可使用详情、记录、升级、模拟上线、影子编辑等全部功能。</li>
+      </ol>
+      <div class="tip">
+        取消激活或取消登录会导致后续能力受限；未输入 GatewaySn 时，大部分操作按钮会提示先输入 SN。
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 id="section-2">第二节：启动与授权</h2>
+      <div class="section-image">
+        <img src="./加载数据.png" alt="第二节启动与授权界面图" />
+      </div>
+      <table>
+        <thead>
+          <tr><th>交互项</th><th>位置</th><th>说明</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>授权码输入框</td>
+            <td>程序启动后自动弹出</td>
+            <td>输入密钥并校验是否为本月可用；校验成功后保存本机凭证，失败会提示错误。</td>
+          </tr>
+          <tr>
+            <td>取消输入</td>
+            <td>授权输入框</td>
+            <td>关闭程序，不进入主界面。</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2 id="section-3">第三节：环境加载与登录</h2>
+      <div class="section-image">
+        <img src="./选择环境.png" alt="第三节环境加载与登录界面图" />
+      </div>
+      <table>
+        <thead>
+          <tr><th>按钮/交互</th><th>前置条件</th><th>行为逻辑</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>Load</code></td>
+            <td>已选择 Environment</td>
+            <td>加载配置、恢复本地历史网关、触发凭据验证；失败时在环境状态区显示错误。</td>
+          </tr>
+          <tr>
+            <td>登录弹窗 <code>登录</code></td>
+            <td>Load 后检测到凭据失效或未登录</td>
+            <td>提交账号/密码/验证码，成功后获取 Token 与 STS 凭证并缓存。</td>
+          </tr>
+          <tr>
+            <td>登录弹窗 <code>退出</code></td>
+            <td>无</td>
+            <td>关闭登录弹窗，本次登录取消。</td>
+          </tr>
+          <tr>
+            <td>验证码图片点击</td>
+            <td>登录弹窗已打开</td>
+            <td>刷新验证码图片（失败时可重试）。</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2 id="section-4">第四节：主页面（清单页）按钮与逻辑</h2>
+      <div class="section-image">
+        <img src="./网关信息.png" alt="第四节主页面按钮示意图" />
+      </div>
+      <table>
+        <thead>
+          <tr><th>按钮</th><th>作用</th><th>关键交互逻辑</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>加载数据</code></td>
+            <td>加载网关总览、IDU/ODU 列表、二维码</td>
+            <td>需要 GatewaySn；成功后更新网关信息、列表颜色标记、状态栏与消息中心。</td>
+          </tr>
+          <tr>
+            <td><code>详情</code></td>
+            <td>打开网关详情窗口</td>
+            <td>未填 SN 不执行。</td>
+          </tr>
+          <tr>
+            <td><code>上电记录</code></td>
+            <td>打开上电记录弹窗--设备上电，上报结构数-内外机数据</td>
+            <td>打开这个页面就会启动被动监听，如果设备有上电，会实时响应，速度优于云端。也可以主动查询，最好输入时间范围。 双击任何值可以打开格式化的窗口，方便复制，也可以导出结果为xlsx</td>
+          </tr>
+          <tr>
+            <td><code>心跳记录</code></td>
+            <td>打开心跳记录弹窗--设备心跳，上报实时数据-运行数据</td>
+            <td>打开这个页面就会启动被动监听，如果设备有心跳，会实时响应，速度优于云端。也可以主动查询，最好输入时间范围。 双击任何值可以打开格式化的窗口，方便复制，也可以导出结果为xlsx<</td>
+          </tr>
+          <tr>
+            <td><code>控制记录</code></td>
+            <td>打开影子控制监听弹窗，APP，WEB-场景，设备操控记录</td>
+            <td>监听经典影子与命名影子 update/accepted，支持主动查询，但主动查询只能查到场景APP下控的命令</td>
+          </tr>
+          <tr>
+            <td><code>升级记录</code></td>
+            <td>查看设备的升级记录-升级的状态-也可以拒绝设备的升级请求，拒绝优先级高于web的ota取消，特殊情况下需要设备重启</td>
+            <td>支持查询作业、执行接受/拒绝/模拟升级/开始升级、导出。</td>
+          </tr>
+          <tr>
+            <td><code>模拟上线</code></td>
+            <td>模拟设备占用上线连接</td>
+            <td>对于离线的设备，如果希望能让APP，web展示在线状态，可以占位上线，但会让真是设备无法上线，需确保调试状态</td>
+          </tr>
+          <tr>
+            <td><code>经典影子</code></td>
+            <td>打开经典影子编辑器---主要是OTA升级的网关设备上报，和app同意模拟</td>
+            <td>支持刷新影子、编辑 JSON、差异下发。</td>
+          </tr>
+          <tr>
+            <td><code>API 服务</code></td>
+            <td>开启本地调试服务器，提供 RESTful 接口</td>
+            <td>点击后启动调试服务器，允许通过 RESTful API 的方式对下级设备进行控制和交互。</td>
+          </tr>
+          <tr>
+            <td><code>一键添加安全组</code></td>
+            <td>将当前客户端公网 IPv4 自动加入 DB 安全组</td>
+            <td>位于第二排按钮；自动从多个公网 IP 服务采集 IPv4，仅写入 IPv4/32 规则，备注为 <code>client-auto-登录用户名</code>，同一用户会先清理旧规则再更新。</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>列表中的 IDU/ODU 行最后一列“详情”为可点击单元格，点击后进入对应对象详情页。</p>
+    </div>
+
+    <div class="card">
+      <h2 id="section-5">第五节：详情页（网关/IDU/ODU）按钮与操作列</h2>
+      <div class="section-image">
+        <img src="./第五节.png" alt="第五节详情页操作图" />
+      </div>
+      <table>
+        <thead>
+          <tr><th>按钮/交互</th><th>作用</th><th>逻辑说明</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>刷新</code></td><td>刷新当前对象全部数据</td><td>异步加载并高亮“刚更新”项。</td></tr>
+          <tr><td><code>任意写入</code></td><td>自定义 key/value 写入</td><td>可选写入目标：dyDb（心跳数据） 或 extraInfo（上电数据）。</td></tr>
+          <tr><td><code>复制列表</code></td><td>复制当前表格所有可见行</td><td>复制到系统剪贴板。</td></tr>
+          <tr><td><code>编辑影子</code></td><td>打开该对象影子编辑器</td><td>支持刷新、编辑 JSON、差异下发。</td></tr>
+          <tr><td><code>一键Mock</code></td><td>批量覆盖心跳 类型数据</td><td>一般只用于mock设备，执行前二次确认。</td></tr>
+          <tr><td>双击任意单元格</td><td>查看单元格详情</td><td>弹出详情窗口并尝试 JSON 格式化展示。</td></tr>
+        </tbody>
+      </table>
+
+      <h3>操作列（按文本点击）</h3>
+      <ul>
+        <li><code>历史</code>（仅心跳数据）：打开历史查询窗口，可查询、分页、导出 CSV。</li>
+        <li><code>心跳</code>（仅心跳数据）：发送指定指标心跳值，此操作会完全模拟设备上报，所以会触发云端所有相关操作。</li>
+        <li><code>下控</code>（仅心跳数据）：下发控制到影子 desired，完全模拟APP下发</li>
+        <li><code>写入</code>：写入指标值。这是直接写入数据库，不会引起云端操作，但是对于上电数据，会修改物模表现</li>
+        <li><code>置顶 / 取消置顶</code>：切换该指标在列表中的置顶状态。</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2 id="section-6">第六节：历史/记录类弹窗</h2>
+      <div class="section-image">
+        <img src="./第六节.png" alt="第六节历史记录弹窗图" />
+      </div>
+      <table>
+        <thead>
+          <tr><th>弹窗</th><th>按钮</th><th>交互逻辑</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>历史查询</td>
+            <td><code>查询</code> / <code>导出CSV</code></td>
+            <td>支持多指标、时间范围、分页容量；有时间范围时走全量模式。</td>
+          </tr>
+          <tr>
+            <td>上电记录 / 心跳记录</td>
+            <td><code>查询</code> / <code>导出XLSX</code> / <code>关闭</code></td>
+            <td>支持主动查询与 MQTT 被动监听融合；分页按钮含首页/上一页/下一页/末页。</td>
+          </tr>
+          <tr>
+            <td>控制监听</td>
+            <td><code>查询</code> / <code>导出XLSX</code> / <code>关闭</code></td>
+            <td>监听经典影子与命名影子消息；双击单元格可查看详情。</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2 id="section-7">第七节：OTA 升级弹窗</h2>
+      <div class="section-image">
+        <img src="./第七节.png" alt="第七节OTA升级弹窗图" />
+        <div class="img-note">图片占位：请将 <code>./images/section7.png</code> 替换为第七节截图。</div>
+      </div>
+      <table>
+        <thead>
+          <tr><th>按钮/动作</th><th>触发方式</th><th>逻辑</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>查询</code></td><td>点击底部按钮</td><td>刷新作业列表，按时间/状态/关键字过滤并展示操作列。</td></tr>
+          <tr><td><code>导出XLSX</code></td><td>点击底部按钮</td><td>导出当前作业数据。</td></tr>
+          <tr><td><code>关闭</code></td><td>点击底部按钮/右上角关闭</td><td>断开 MQTT 后关闭窗口。</td></tr>
+          <tr><td>操作列双击</td><td>双击“操作”列</td><td>队列中作业可“接受/拒绝”；进行中作业可“模拟用户升级”或“开始升级”。</td></tr>
+          <tr><td>进度弹窗 <code>结束</code></td><td>开始升级后弹出</td><td>上报最终进度；进度到 100% 时尝试回写 SUCCEEDED。</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2 id="section-8">第八节：影子与模拟上线弹窗</h2>
+      <div class="section-image">
+        <img src="./第八节.png" alt="第八节影子与模拟上线弹窗图" />
+        <div class="img-note">图片占位：请将 <code>./images/section8.png</code> 替换为第八节截图。</div>
+      </div>
+      <table>
+        <thead>
+          <tr><th>弹窗</th><th>按钮</th><th>逻辑</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>经典影子编辑</td>
+            <td><code>刷新</code> / <code>下发</code> / <code>关闭</code></td>
+            <td>下发时按 desired 差异计算，避免无效提交。</td>
+          </tr>
+          <tr>
+            <td>详情页影子编辑</td>
+            <td><code>刷新</code> / <code>下发</code> / <code>关闭</code></td>
+            <td>逻辑同上，作用对象为当前 system/idu/odu。</td>
+          </tr>
+          <tr>
+            <td>模拟上线</td>
+            <td>启动前确认框 + <code>关闭</code></td>
+            <td>确认后连接 MQTT 并占用设备 Client ID，关闭时释放连接。</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2 id="section-9">第九节：通用提示与异常处理</h2>
+      <div class="section-image">
+        <img src="./images/section9.png" alt="第九节通用提示图" />
+      </div>
+      <ul>
+        <li>未输入 GatewaySn 时，涉及网关数据的按钮会提示“请输入 GatewaySn”。</li>
+        <li>鉴权失效会触发重新登录，重新登录成功后再重试当前操作。</li>
+        <li>导出功能（CSV/XLSX）在无数据时会提示“暂无可导出数据”。</li>
+        <li>关闭记录/监听类弹窗时，会自动断开 MQTT 连接，避免后台资源占用。</li>
+        <li>主界面消息中心会持续记录关键操作日志，便于运维排障。</li>
+      </ul>
+    </div>
+      <div class="card">
+      <h2 id="section-10">第十节：API服务与自动化测试（REST + WebSocket + MQTT转接）</h2>
+      <div class="section-image">
+        <img src="./images/section10.png" alt="第十节API服务图" />
+        <div class="img-note">图片占位：请将 <code>./images/section10.png</code> 替换为API服务弹窗截图。</div>
+      </div>
+      <div class="warn">
+        该功能必须在本软件内先完成 <strong>Load + 登录</strong> 后使用。API不独立登录，完全复用软件当前授权与STS。
+      </div>
+      <table>
+        <thead>
+          <tr><th>入口</th><th>位置</th><th>说明</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>api服务</code></td>
+            <td>列表页网关信息按钮行最后一个按钮</td>
+            <td>点击后弹出API服务窗口，并可启动本地 REST + WebSocket 服务。</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>REST 接口</h3>
+      <ul>
+        <li><code>GET /health</code>：查看服务状态、当前环境、WS隧道连接数。</li>
+        <li><code>POST /v1/shadow/control</code>：下控影子（逻辑与详情页“下控”一致）。</li>
+        <li><code>POST /v1/shadow/get</code>：读取经典影子/命名影子。</li>
+      </ul>
+
+      <h3>WebSocket 服务（透明中转）</h3>
+      <ul>
+        <li>地址：<code>ws://127.0.0.1:18081</code>（端口可在弹窗中改）。</li>
+        <li>连接路径：<code>/mqtt</code>，即 <code>ws://127.0.0.1:18081/mqtt</code>。</li>
+        <li>协议与 AWS IoT MQTT over WebSocket 一致：传输原生 MQTT 帧（CONNECT/SUBSCRIBE/PUBLISH 等）。</li>
+        <li>本软件仅负责使用当前登录态 STS 做 SigV4 签名并转发，不定义私有 action/event 协议。</li>
+      </ul>
+
+      <h3>转接说明</h3>
+      <ul>
+        <li>客户端订阅哪些 topic，就会收到哪些消息（如心跳、上电、经典影子、命名影子变更）。</li>
+        <li>客户端发布哪些 topic，就会被原样转发到 AWS MQTT（例如影子操作相关 topic）。</li>
+        <li>该中转不改写业务 payload，不插入额外事件结构。</li>
+      </ul>
+
+      <h3>典型流程</h3>
+      <ol>
+        <li>在软件中完成 <code>Load + 登录</code> 并确认 GatewaySn 可用。</li>
+        <li>点击 <code>api服务</code>，确认 REST 与 WS 地址。</li>
+        <li>MQTT 客户端改连 <code>ws://127.0.0.1:18081/mqtt</code>，并按 AWS 文档正常发起 MQTT CONNECT。</li>
+        <li>随后按标准 MQTT 执行 SUBSCRIBE/PUBLISH：可监听心跳、上电、经典影子与命名影子变更；也可执行影子操作。</li>
+      </ol>
+
+      <h3>API服务使用方案</h3>
+      <ul>
+        <li>方案A（推荐联调）：REST 用于影子控制与查询，WebSocket 用于 MQTT 全链路调试与监听。</li>
+        <li>方案B（纯 MQTT）：仅连接 <code>ws://127.0.0.1:18081/mqtt</code>，按 AWS MQTT 协议完成订阅与发布。</li>
+        <li>方案C（仅控制）：仅调用 REST <code>/v1/shadow/control</code> 与 <code>/v1/shadow/get</code>。</li>
+        <li>授权要求：必须保持本软件已登录；STS 过期后先回软件重新登录，再继续 API 调试。</li>
+        <li>接口示例：在软件内 <code>api服务</code> 弹窗文档中查看最新 REST 请求示例（含 curl）。</li>
+      </ul>
+    </div>
+  </div>
+</body>
+</html>
