@@ -7,6 +7,10 @@ import { HiHereTable } from '../constructs/hihere-table';
 import { ChatWriteFunction } from '../constructs/chat-write-function';
 import { ChatListFunction } from '../constructs/chat-list-function';
 import { ChatStatusFunction } from '../constructs/chat-status-function';
+import { ChatJoinFunction } from '../constructs/chat-join-function';
+import { HiHereTagsTable } from '../constructs/hihere-table';
+import { ChatTagUpdateFunction } from '../constructs/chat-tag-update-function';
+import { ChatTagSearchFunction } from '../constructs/chat-tag-search-function';
 import { ReleaseBucket } from '../constructs/release-bucket';
 import { ReleaseViewerFunction } from '../constructs/release-viewer-function';
 import { ReleasePageFunction } from '../constructs/release-page-function';
@@ -30,14 +34,24 @@ export class HelloApiStack extends cdk.Stack {
     const httpSite = new HttpSiteApi(this, 'HttpSite', { helloFn: helloFn.fn, locationFn: locationFn.fn });
     // DDB: hi_here (PK here_name STRING, SK heart_time NUMBER)
     const table = new HiHereTable(this, 'HiHere');
+    const tagsTable = new HiHereTagsTable(this, 'HiHereTags');
     // Chat lambdas with AWS SDK v2 layer
     const awsSdkLayer = new AwsSdkV2Layer(this, 'AwsSdkLayer');
     const chatWrite = new ChatWriteFunction(this, 'ChatWrite', { tableName: table.table.tableName, layers: [awsSdkLayer.layer] });
     const chatList = new ChatListFunction(this, 'ChatList', { tableName: table.table.tableName, layers: [awsSdkLayer.layer] });
     const chatStatus = new ChatStatusFunction(this, 'ChatStatus', { tableName: table.table.tableName, layers: [awsSdkLayer.layer] });
+    const chatJoin = new ChatJoinFunction(this, 'ChatJoin', { tableName: table.table.tableName, layers: [awsSdkLayer.layer] });
+    const chatTagUpdate = new ChatTagUpdateFunction(this, 'ChatTagUpdate', { tableName: table.table.tableName, tagsTableName: tagsTable.table.tableName, layers: [awsSdkLayer.layer] });
+    const chatTagSearch = new ChatTagSearchFunction(this, 'ChatTagSearch', { tableName: table.table.tableName, tagsTableName: tagsTable.table.tableName, layers: [awsSdkLayer.layer] });
+    
     table.table.grantReadWriteData(chatWrite.fn);
     table.table.grantReadData(chatList.fn);
     table.table.grantReadData(chatStatus.fn);
+    table.table.grantReadWriteData(chatJoin.fn);
+    table.table.grantReadWriteData(chatTagUpdate.fn);
+    table.table.grantReadData(chatTagSearch.fn);
+    tagsTable.table.grantReadWriteData(chatTagUpdate.fn);
+    tagsTable.table.grantReadData(chatTagSearch.fn);
     // WebSocket API
     const ws = new WsApi(this, 'Ws', { tableName: table.table.tableName, layers: [awsSdkLayer.layer], stageName: 'prod' });
     table.table.grantReadWriteData(ws.handler);
@@ -64,9 +78,15 @@ export class HelloApiStack extends cdk.Stack {
     const writeInt = new integrations.HttpLambdaIntegration('ChatWriteInt', chatWrite.fn);
     const listInt = new integrations.HttpLambdaIntegration('ChatListInt', chatList.fn);
     const statusInt = new integrations.HttpLambdaIntegration('ChatStatusInt', chatStatus.fn);
+    const joinInt = new integrations.HttpLambdaIntegration('ChatJoinInt', chatJoin.fn);
+    const tagUpdateInt = new integrations.HttpLambdaIntegration('ChatTagUpdateInt', chatTagUpdate.fn);
+    const tagSearchInt = new integrations.HttpLambdaIntegration('ChatTagSearchInt', chatTagSearch.fn);
     httpSite.api.addRoutes({ path: '/api/message', methods: [apigwv2.HttpMethod.POST], integration: writeInt });
     httpSite.api.addRoutes({ path: '/api/messages', methods: [apigwv2.HttpMethod.GET], integration: listInt });
     httpSite.api.addRoutes({ path: '/api/messages/status', methods: [apigwv2.HttpMethod.POST, apigwv2.HttpMethod.OPTIONS], integration: statusInt });
+    httpSite.api.addRoutes({ path: '/api/join', methods: [apigwv2.HttpMethod.POST, apigwv2.HttpMethod.OPTIONS], integration: joinInt });
+    httpSite.api.addRoutes({ path: '/api/files/tag/update', methods: [apigwv2.HttpMethod.POST, apigwv2.HttpMethod.OPTIONS], integration: tagUpdateInt });
+    httpSite.api.addRoutes({ path: '/api/files/tag/search', methods: [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.OPTIONS], integration: tagSearchInt });
     new cdk.CfnOutput(this, 'ProdHelloUrl', { value: `${httpSite.baseUrl}/api/hello`, exportName: 'ProdHelloUrl' });
     new cdk.CfnOutput(this, 'HelloApiEndpoint', { value: `${httpSite.baseUrl}/`, exportName: 'HelloApiEndpoint' });
     new cdk.CfnOutput(this, 'WsBaseUrl', { value: `wss://${ws.apiId}.execute-api.${region}.amazonaws.com/${ws.stageName}`, exportName: 'WsBaseUrl' });

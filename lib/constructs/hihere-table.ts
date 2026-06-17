@@ -15,5 +15,28 @@ export class HiHereTable extends Construct {
       writeCapacity: 1,
       removalPolicy: cdk.RemovalPolicy.DESTROY
     });
+
+    this.table.addGlobalSecondaryIndex({
+      indexName: 'FileTagIndex',
+      partitionKey: { name: 'tag_pk', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'heart_time', type: dynamodb.AttributeType.NUMBER },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+  }
+}
+
+export class HiHereTagsTable extends Construct {
+  public readonly table: dynamodb.Table;
+  constructor(scope: Construct, id: string) {
+    super(scope, id);
+    this.table = new dynamodb.Table(this, 'HiHereTagsTable', {
+      tableName: 'hi_here_tags',
+      partitionKey: { name: 'here_name', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'tag_name', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PROVISIONED,
+      readCapacity: 1,
+      writeCapacity: 1,
+      removalPolicy: cdk.RemovalPolicy.DESTROY
+    });
   }
 }

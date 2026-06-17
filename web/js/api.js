@@ -187,12 +187,18 @@
       await fetch(API_BASE + '/api/files/append', { method: 'POST', headers, body });
     } catch {}
   }
-  async function fileRemark(key, remark){
+  async function updateFileTag(heart_time, tag_name){
     try{
       const headers = { 'Content-Type': 'application/json', 'hitoken': encodeURIComponent(window.store.here_name || '') };
-      const body = JSON.stringify({ key, remark });
-      await fetch(API_BASE + '/api/files/remark', { method: 'POST', headers, body });
+      const body = JSON.stringify({ heart_time, tag_name });
+      await fetch(API_BASE + '/api/files/tag/update', { method: 'POST', headers, body });
     } catch {}
+  }
+  async function searchFilesByTag(q) {
+    const headers = { 'Content-Type': 'application/json', 'hitoken': encodeURIComponent(window.store.here_name || '') };
+    const res = await fetch(API_BASE + '/api/files/tag/search?q=' + encodeURIComponent(q), { headers });
+    if (!res.ok) throw new Error('Search failed');
+    return res.json();
   }
   // WebSocket
   let ws = null, recvCount = 0, regTimer = null, pingTimer = null, wsWatchTimer = null, lastRecvTs = 0;
@@ -285,5 +291,16 @@
       ws.onerror = () => { cleanupTimers(); try { if (onWSStateCb) onWSStateCb(false); ws && ws.close(); } catch {} };
     } catch {}
   }
-  window.api = { battery, batteryForSend, geoloc, geolocForSend, geolocTryFast, geolocBackgroundRefresh, list, send, connectWS, onPush, sendRead, uploadUrl, getUrl, status, onWSState, wsState, heartbeat, appendFileIndex, fileRemark, geolocSaveCache: geolocSaveCache, saveBatteryCache, netForSend, saveNetCache };
+  async function join(here_name, here_nick_name, secret_key) {
+    const headers = { 'Content-Type': 'application/json' };
+    const body = JSON.stringify({ here_name, here_nick_name, secret_key });
+    const res = await fetch(API_BASE + '/api/join', { method: 'POST', headers, body });
+    if (!res.ok) {
+      const err = await res.json();
+      throw err;
+    }
+    return res.json();
+  }
+
+  window.api = { battery, batteryForSend, geoloc, geolocForSend, geolocTryFast, geolocBackgroundRefresh, list, send, connectWS, onPush, sendRead, uploadUrl, getUrl, status, onWSState, wsState, heartbeat, appendFileIndex, updateFileTag, searchFilesByTag, geolocSaveCache: geolocSaveCache, saveBatteryCache, netForSend, saveNetCache, join };
 })(); 

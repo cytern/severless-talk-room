@@ -1,7 +1,46 @@
 (()=> {
   const listEl = document.getElementById('list');
   const btnBack = document.getElementById('btnBack');
+  const inpSearch = document.getElementById('inpSearch');
+  const btnSearch = document.getElementById('btnSearch');
   if (btnBack) btnBack.onclick = ()=>{ window.location.href = 'index.html'; };
+  
+  let currentSearchQuery = '';
+  let searchTimer = null;
+  let searchResults = null;
+
+  if (inpSearch) {
+    inpSearch.addEventListener('input', () => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => {
+        doSearch(inpSearch.value.trim());
+      }, 3000);
+    });
+  }
+  if (btnSearch) {
+    btnSearch.onclick = () => {
+      clearTimeout(searchTimer);
+      doSearch(inpSearch?.value.trim());
+    };
+  }
+
+  async function doSearch(q) {
+    if (!q) {
+      currentSearchQuery = '';
+      searchResults = null;
+      render();
+      return;
+    }
+    try {
+      const res = await window.api.searchFilesByTag(q);
+      searchResults = res.items || [];
+      currentSearchQuery = q;
+      render();
+    } catch (e) {
+      console.error(e);
+      alert('查询失败: ' + e.message);
+    }
+  }
   function tokenOf(ts){
     const d=new Date((ts||0)+8*3600*1000);
     const y=d.getUTCFullYear(), m=d.getUTCMonth()+1, da=d.getUTCDate();
@@ -40,8 +79,19 @@
     if(!listEl) return;
     listEl.innerHTML = '';
     const notes = loadNotes();
-    const files = (window.store?.messages||[]).filter(m => m && m.file && (m.file.key || m.file.local_url));
-    files.sort((a,b)=>(b.heart_time||0)-(a.heart_time||0));
+    let files = [];
+    if (searchResults != null) {
+      files = searchResults;
+    } else {
+      files = (window.store?.messages||[]).filter(m => m && m.file && (m.file.key || m.file.local_url));
+      files.sort((a,b)=>(b.heart_time||0)-(a.heart_time||0));
+    }
+    
+    if (files.length === 0) {
+      listEl.innerHTML = '<div class="divider">没有找到文件</div>';
+      return;
+    }
+
     let lastTok = null;
     for (const m of files){
       const tok = tokenOf(m.heart_time||0);
@@ -96,22 +146,38 @@
       };
       const meta = document.createElement('div'); meta.className='file-meta';
       const title = document.createElement('div'); title.textContent = `${m.here_nick_name||''} · ${new Date(m.heart_time||0).toLocaleString()}`;
-      const noteText = document.createElement('div'); noteText.className='note'; noteText.textContent = notes[m.file?.key||''] || '';
+      
+      const serverTag = m.file_tag; // 标签属性可能从服务器来
+      const localTag = notes[m.file?.key||''] || '';
+      const tagStr = serverTag || localTag || '';
+
+      const noteText = document.createElement('div'); 
+      if (tagStr) {
+        noteText.className='tag-badge'; 
+        noteText.textContent = tagStr;
+      }
+
       const noteEdit = document.createElement('div'); noteEdit.className='note-edit'; noteEdit.style.display='none';
-      const input = document.createElement('input'); input.type='text'; input.placeholder='添加备注（再次点击可修改）';
+      const input = document.createElement('input'); input.type='text'; input.placeholder='添加标签（再次点击可修改）';
       const ok = document.createElement('button'); ok.className='btn secondary'; ok.textContent='完成';
       ok.onclick = async ()=> {
         const v = input.value.trim();
         notes[m.file?.key||''] = v;
         saveNotes(notes);
-        noteText.textContent = v;
+        if (v) {
+          noteText.className = 'tag-badge';
+          noteText.textContent = v;
+        } else {
+          noteText.className = '';
+          noteText.textContent = '';
+        }
         noteEdit.style.display='none';
-        try { if (window.api?.fileRemark && m.file?.key) window.api.fileRemark(m.file.key, v); } catch {}
+        try { if (window.api?.updateFileTag && m.heart_time) window.api.updateFileTag(m.heart_time, v); } catch {}
       };
       noteEdit.append(input, ok);
       meta.append(title, noteText, noteEdit);
-      const plus = document.createElement('button'); plus.className='btn'; plus.textContent='+'; plus.title='备注';
-      plus.onclick = ()=>{ input.value = notes[m.file?.key||''] || ''; noteEdit.style.display = 'flex'; input.focus(); };
+      const plus = document.createElement('button'); plus.className='btn'; plus.textContent='+'; plus.title='标签';
+      plus.onclick = ()=>{ input.value = notes[m.file?.key||''] || serverTag || ''; noteEdit.style.display = 'flex'; input.focus(); };
       if (type==='图片') {
         const thumb = document.createElement('img');
         const key = m.file?.key||'';

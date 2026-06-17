@@ -10,6 +10,9 @@
     .header-inner { height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 12px; }
     .header-inner #planet { font-weight: 700; }
     .header-inner button { border: 1px solid #d9d9d9; background: #fff; border-radius: 10px; padding: 6px 10px; }
+    .search-bar { display: flex; gap: 8px; padding: 10px 12px; background: #fff; border-bottom: 1px solid #f0f0f0; }
+    .search-bar input { flex: 1; border: 1px solid #e5e5e5; border-radius: 16px; padding: 8px 12px; outline: none; }
+    .search-bar button { border: none; background: #10aeff; color: #fff; border-radius: 16px; padding: 8px 16px; font-weight: bold; }
     main { padding: 10px; min-height: 60vh; }
     .divider { color: #999; font-size: 12px; text-align: center; margin: 12px 0; }
     .file-item { display: flex; align-items: center; gap: 10px; background:#fff; border-radius:12px; padding: 10px; margin: 6px 0; position: relative; }
@@ -17,7 +20,7 @@
     .file-meta { display:flex; flex-direction:column; gap:4px; flex:1; }
     .btn { border: 1px solid #d9d9d9; background: #fff; border-radius: 10px; padding: 6px 10px; }
     .btn.secondary { background: #10aeff; border-color: #10aeff; color: #fff; }
-    .note { font-size: 12px; color: #ff9aa0; }
+    .tag-badge { display: inline-block; background: #e6f7ff; color: #1890ff; border: 1px solid #91d5ff; border-radius: 12px; padding: 2px 8px; font-size: 12px; margin-top: 4px; }
     .note-edit { display:flex; align-items:center; gap:6px; margin-top:6px; }
     .note-edit input { flex:1; border:1px solid #e5e5e5; border-radius:8px; padding:6px 8px; }
     #imgViewer { position: fixed; inset: 0; background: rgba(0,0,0,.85); display: none; align-items: center; justify-content: center; z-index: 20; }
@@ -32,6 +35,10 @@
     <div class="header-inner">
       <div id="planet">文件管理</div>
       <button id="btnBack">返回</button>
+    </div>
+    <div class="search-bar">
+      <input type="text" id="inpSearch" placeholder="搜索标签...">
+      <button id="btnSearch">立即查询</button>
     </div>
   </header>
   <main id="list"></main>

@@ -121,7 +121,12 @@
         <label>昵称（here_nick_name）</label>
         <input id="inpNick" type="text" placeholder="你的昵称">
       </div>
+      <div class="field" id="fieldSecret" style="display:none;">
+        <label>密钥（新增加的用户和星球必填）</label>
+        <input id="inpSecret" type="password" placeholder="请输入固定密钥">
+      </div>
       <button id="btnSave" class="btn">确定</button>
+      <div id="modalError" style="color:red; font-size:12px; margin-top:8px;"></div>
     </div>
   </div>
   <div id="modalPunch" style="display:none;">

@@ -767,14 +767,38 @@
     if(!window.store.here_name || !window.store.nick){
       document.getElementById('modal').style.display='flex';
       return new Promise(res=>{
-        document.getElementById('btnSave').onclick=()=>{
-          const p=document.getElementById('inpPlanet').value.trim();
-          const n=document.getElementById('inpNick').value.trim();
+        const btnSave = document.getElementById('btnSave');
+        const inpPlanet = document.getElementById('inpPlanet');
+        const inpNick = document.getElementById('inpNick');
+        const fieldSecret = document.getElementById('fieldSecret');
+        const inpSecret = document.getElementById('inpSecret');
+        const errDiv = document.getElementById('modalError');
+
+        btnSave.onclick = async ()=>{
+          const p = inpPlanet.value.trim();
+          const n = inpNick.value.trim();
+          const s = inpSecret.value.trim();
           if(!p || !n) return;
-          window.store.here_name=p; window.store.nick=n;
-          document.getElementById('modal').style.display='none';
-          planet.textContent=p;
-          res();
+
+          btnSave.disabled = true;
+          errDiv.textContent = '验证中...';
+          try {
+            await window.api.join(p, n, s);
+            window.store.here_name = p; 
+            window.store.nick = n;
+            document.getElementById('modal').style.display='none';
+            planet.textContent=p;
+            res();
+          } catch (e) {
+            if (e.error === 'SecretKeyRequired') {
+              fieldSecret.style.display = 'block';
+              errDiv.textContent = e.message || '请输入密钥';
+            } else {
+              errDiv.textContent = e.error || '验证失败';
+            }
+          } finally {
+            btnSave.disabled = false;
+          }
         };
       });
     } else {
