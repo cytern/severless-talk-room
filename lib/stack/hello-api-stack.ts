@@ -156,7 +156,8 @@ export class HelloApiStack extends cdk.Stack {
       apiName: 'CarrierViewer',
       corsPreflight: {
         allowOrigins: ['*'],
-        allowMethods: [apigwv2.CorsHttpMethod.GET, apigwv2.CorsHttpMethod.OPTIONS],
+        allowMethods: [apigwv2.CorsHttpMethod.ANY],
+        allowHeaders: ['*'],
       },
     });
     const viewerReleaseInt = new integrations.HttpLambdaIntegration('ViewerReleaseInt', releaseViewer.fn);

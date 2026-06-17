@@ -2,8 +2,8 @@
   const API_BASE = (() => {
     const saved = localStorage.getItem('api_base');
     if (saved) return saved;
-    const isApiDomain = /execute-api\./.test(location.hostname);
-    return isApiDomain ? '' : 'https://ko8egkyh0f.execute-api.ap-east-1.amazonaws.com';
+    const isApiDomain = /execute-api\./.test(location.hostname) || /cytern\.click/.test(location.hostname);
+    return isApiDomain ? '' : 'https://here.cytern.click';
   })();
   try { window.API_BASE = API_BASE; } catch {}
   async function battery() {

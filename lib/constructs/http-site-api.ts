@@ -35,8 +35,8 @@ export class HttpSiteApi extends Construct {
       apiName: 'HiHere',
       corsPreflight: {
         allowOrigins: ['*'],
-        allowMethods: [apigwv2.CorsHttpMethod.GET, apigwv2.CorsHttpMethod.POST, apigwv2.CorsHttpMethod.OPTIONS],
-        allowHeaders: ['Content-Type', 'Authorization', 'hitoken'],
+        allowMethods: [apigwv2.CorsHttpMethod.ANY],
+        allowHeaders: ['*'],
       },
     });
 
